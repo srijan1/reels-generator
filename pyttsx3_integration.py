@@ -320,3 +320,4 @@ def adjust_speech_to_duration(text, target_duration, output_path):
             audio_path = convert_text_to_speech(text, output_path=output_path, rate=new_rate)
             
         return audio_path
+        
