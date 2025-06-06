@@ -136,3 +136,4 @@ def professional_smooth_slide(img1, img2, progress, direction="right"):
         result.paste(img2, (0, offset - height))
     
     return result
+    
