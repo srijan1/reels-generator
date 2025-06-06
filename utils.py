@@ -46,4 +46,5 @@ def format_time(seconds):
     """Format seconds as minutes:seconds"""
     minutes = math.floor(seconds / 60)
     seconds = math.floor(seconds % 60)
+    
     return f"{minutes}:{seconds:02d}"
