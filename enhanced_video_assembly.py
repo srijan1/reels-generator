@@ -251,3 +251,4 @@ def create_final_video(frames_dir, video_no_audio_path, final_video_path, audio_
             print(f"Then add audio with:")
             print(f"ffmpeg -i {video_no_audio_path} -i {audio_path} -c:v copy -c:a aac -shortest {final_video_path}")
         return False
+        
