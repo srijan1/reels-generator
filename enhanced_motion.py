@@ -365,3 +365,4 @@ def create_enhanced_motion_frames(image_path, output_dir, duration, narration_te
     # Count frames to verify
     frame_count = len([f for f in os.listdir(output_dir) if f.endswith('.png')])
     return frame_count
+                                     
