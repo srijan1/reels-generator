@@ -114,3 +114,4 @@ def create_motion_frames(image_path, output_dir, duration, zoom_direction, text=
 
     print(f"Generated {num_frames} frames with {zoom_direction} motion effect")
     return num_frames
+    
