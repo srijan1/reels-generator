@@ -331,3 +331,4 @@ def create_transition_frames(base_dir, from_segment, to_segment, transition_type
 
     print(f"Generated {transition_frames} transition frames")
     return transition_frames
+    
