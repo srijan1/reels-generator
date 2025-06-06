@@ -225,3 +225,4 @@ def preserve_captions_during_transitions(base_dir, transition_dir, segment_num, 
             )
             
             frame_with_caption.save(frame_path)
+            
