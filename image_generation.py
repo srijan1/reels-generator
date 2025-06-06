@@ -91,3 +91,4 @@ def generate_segment_image(pipe_img, prompt, height=512, width=288, device="cpu"
         draw = ImageDraw.Draw(image)
         draw.text((10, height//2), f"Image generation failed. Error: {str(e)[:50]}", fill=(255, 255, 255))
         return image
+        
