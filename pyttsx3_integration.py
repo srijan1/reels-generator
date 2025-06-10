@@ -2,7 +2,7 @@
 Functions for text-to-speech using pyttsx3 with enhanced macOS support.
 This module handles TTS generation and audio timing synchronization.
 """
-
+# Note: FFMPEG path modification should be handled by the main calling script.
 import pyttsx3
 import tempfile
 import subprocess

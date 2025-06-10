@@ -20,11 +20,16 @@ Requirements:
 
 # Import required modules - update these import statements to match your file names
 #from main_pyttsx3 import main  # Or whatever your main file is called
+# --- BEGIN FFMPEG PATH MODIFICATION ---
+from ffmpeg_config import ensure_ffmpeg_in_path
+ensure_ffmpeg_in_path()
+# --- END FFMPEG PATH MODIFICATION ---
 from fixed_main_with_sync import main
 from groq_script_generator import get_user_story_prompt, generate_story_script
 import json
 import os
 import time
+import glob
 
 def generate_custom_video():
     """Generate a custom narrative video based on user input using Groq API"""
@@ -35,50 +40,96 @@ def generate_custom_video():
     print("✨ Custom script generation using Groq API")
     print("🎙️  High-quality pyttsx3 voice-over (no API limits)")
     print("🎯 Perfect audio-visual synchronization")
-    print("📱 Professional subtitle overlays")
+    print("📱 Professional subtitle overlays") # Ensure this matches fixed_main_with_sync.py features
     print("🎨 Dynamic visual effects and transitions")
-    print("🤖 AI-generated images via Stable Diffusion")
-    print("\nLet's create your custom narrative story!\n")
-    
-    # Get user input for the story video
-    story_topic, audience, duration_minutes, num_segments = get_user_story_prompt()
-    
-    # Generate script using Groq API
-    print(f"\n🚀 Generating your custom narrative script using Groq API...")
-    print(f"📖 Topic: {story_topic}")
-    print(f"👥 Audience: {audience}")
-    print(f"⏱️  Duration: {duration_minutes} minute(s)")
-    print(f"📊 Segments: {num_segments}")
-    
-    # Generate the script with the specified parameters
-    story_script = generate_story_script(story_topic, audience, duration_minutes, num_segments)
-    
-    # Save the script to a file for inspection/reuse
-    timestamp = int(time.time())
-    script_dir = "./generated_scripts"
-    os.makedirs(script_dir, exist_ok=True)
-    script_path = f"{script_dir}/story_script_{timestamp}.json"
-    
-    with open(script_path, 'w') as f:
-        json.dump(story_script, f, indent=2)
-    
-    print(f"\n✅ Script generated and saved to {script_path}")
-    print(f"📝 Title: {story_script.get('title', 'Custom Story')}")
-    print(f"🎭 Style: {story_script.get('style', 'narrative')}")
-    print(f"📱 Format: {story_script.get('aspect_ratio', '9:16')} (vertical)")
-    
+    print("🤖 AI-generated or Pexels stock images") # Reflects mixed image generation
+    print("\nLet's create your video!\n")
+
+    resume_dir_path = None
+    story_script_for_main = None
+    script_path_for_messages = None
+    resume_state = {}
+
+    resume_choice = input("Do you want to attempt to resume a previous incomplete run? (yes/no): ").strip().lower()
+    if resume_choice == 'yes':
+        resume_dir_path_input = input("Enter the full path to the directory to resume: ").strip()
+        if os.path.isdir(resume_dir_path_input):
+            resume_dir_path = resume_dir_path_input
+            print(f"Will attempt to resume from {resume_dir_path}")
+
+            # Detect script file
+            script_candidates = glob.glob(os.path.join(resume_dir_path, "story_script_*.json"))
+            generated_scripts_dir = os.path.join(resume_dir_path, "generated_scripts")
+            if os.path.isdir(generated_scripts_dir):
+                script_candidates += glob.glob(os.path.join(generated_scripts_dir, "story_script_*.json"))
+            if not script_candidates and os.path.isdir("generated_scripts"):
+                script_candidates += glob.glob(os.path.join("generated_scripts", "story_script_*.json"))
+            if script_candidates:
+                script_candidates.sort(key=os.path.getmtime, reverse=True)
+                script_path_for_messages = script_candidates[0]
+                print(f"Found script: {script_path_for_messages}")
+                resume_state['script'] = True
+            else:
+                print("No script file found in the provided directory.")
+                resume_state['script'] = False
+
+            # Detect other steps (example: frames, audio, transitions, etc.)
+            # Adjust these checks to match your actual output structure
+            resume_state['frames'] = os.path.isdir(os.path.join(resume_dir_path, "frames"))
+            resume_state['audio'] = os.path.isfile(os.path.join(resume_dir_path, "audio.wav"))
+            resume_state['transitions'] = os.path.isdir(os.path.join(resume_dir_path, "transitions"))
+            resume_state['video'] = os.path.isfile(os.path.join(resume_dir_path, "final_video.mp4"))
+
+            print("Resume state detected:")
+            for k, v in resume_state.items():
+                print(f"  {k}: {'✅' if v else '❌'}")
+        else:
+            print(f"Invalid resume directory: {resume_dir_path_input}. Starting a new run.")
+
+    if not resume_dir_path:
+        # Get user input for the story video
+        story_topic, audience, duration_minutes, num_segments = get_user_story_prompt()
+        
+        # Generate script using Groq API
+        print(f"\n🚀 Generating your custom narrative script using Groq API...")
+        print(f"📖 Topic: {story_topic}")
+        print(f"👥 Audience: {audience}")
+        print(f"⏱️  Duration: {duration_minutes} minute(s)")
+        print(f"📊 Segments: {num_segments}")
+        
+        story_script_for_main = generate_story_script(story_topic, audience, duration_minutes, num_segments)
+        
+        timestamp = int(time.time())
+        script_dir = "./generated_scripts"
+        os.makedirs(script_dir, exist_ok=True)
+        script_path_for_messages = f"{script_dir}/story_script_{timestamp}.json"
+        
+        with open(script_path_for_messages, 'w') as f:
+            json.dump(story_script_for_main, f, indent=2)
+        
+        print(f"\n✅ Script generated and saved to {script_path_for_messages}")
+        print(f"📝 Title: {story_script_for_main.get('title', 'Custom Story')}")
+        print(f"🎭 Style: {story_script_for_main.get('style', 'narrative')}")
+        print(f"📱 Format: {story_script_for_main.get('aspect_ratio', '9:16')} (vertical)")
+
     print("\n🎬 Starting video generation process...")
     print("⚠️  This will take several minutes depending on your hardware.")
     print("📊 Progress will be shown for each step.\n")
     
     # Call the main function with our custom script
     try:
-        main(custom_script=story_script)
+        # Pass resume_state to main so it can skip completed steps
+        main(
+            custom_script=story_script_for_main,
+            resume_base_dir=resume_dir_path,
+            resume_state=resume_state
+        )
         
         print("\n" + "=" * 60)
         print("🎉 SUCCESS! Your custom narrative video is ready!")
         print("=" * 60)
-        print(f"📁 Script saved: {script_path}")
+        if script_path_for_messages:
+            print(f"📁 Script used/generated: {script_path_for_messages}")
         print("🎥 Video file: Check current directory for final output")
         print("📱 Ready for: Instagram Reels, TikTok, YouTube Shorts")
         print("\n💡 Tips:")
@@ -89,12 +140,14 @@ def generate_custom_video():
         
     except KeyboardInterrupt:
         print("\n⚠️  Process interrupted by user.")
-        print(f"📁 Your script was saved to: {script_path}")
+        if script_path_for_messages:
+            print(f"📁 Your script (if newly generated) was saved to: {script_path_for_messages}")
         print("💡 You can resume generation later with this script.")
         
     except Exception as e:
         print(f"\n❌ Error during video generation: {e}")
-        print(f"📁 Your script was still saved to: {script_path}")
+        if script_path_for_messages:
+            print(f"📁 Your script (if newly generated) was saved to: {script_path_for_messages}")
         print("💡 You can try running the generation again or check the logs.")
 
 def show_api_info():

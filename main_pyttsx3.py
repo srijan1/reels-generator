@@ -395,6 +395,10 @@ This is the modified entry point that uses pyttsx3 for TTS and enables perfect a
 """
 '''
 working
+# --- BEGIN FFMPEG PATH CONFIGURATION ---
+from ffmpeg_config import ensure_ffmpeg_in_path
+ensure_ffmpeg_in_path()
+# --- END FFMPEG PATH CONFIGURATION ---
 import os
 import time
 import torch
