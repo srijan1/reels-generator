@@ -102,53 +102,27 @@ def create_silent_audio_with_duration(text, output_path, target_duration):
 def main(custom_script=None, resume_base_dir=None, resume_state=None):
     """Main function with perfect audio-video synchronization"""
 
-    travel_story_script = None # Initialize
+    if resume_state is None:
+        resume_state = {}
+
+    travel_story_script = None 
     base_dir = None
+    segment_images = []
     final_frames_dir = None
     final_audio_path = None
+    audio_segments = [] 
+    current_time = 0    
 
-    if resume_base_dir:
-        if not os.path.isdir(resume_base_dir):
-            print(f"Error: Resume directory '{resume_base_dir}' not found. Starting a new run.")
-            resume_base_dir = None # Fallback to new run
-        else:
-            base_dir = resume_base_dir
-            print(f"Attempting to resume from: {base_dir}")
-
-            # Load the latest script to get necessary configurations
-            script_to_load_path = f"{base_dir}/1_script/story_script_with_audio.json"
-            if not os.path.exists(script_to_load_path):
-                script_to_load_path = f"{base_dir}/1_script/story_script_with_narration.json"
-            if not os.path.exists(script_to_load_path):
-                script_to_load_path = f"{base_dir}/1_script/story_script.json"
-
-            if os.path.exists(script_to_load_path):
-                with open(script_to_load_path, 'r') as f:
-                    travel_story_script = json.load(f)
-                print(f"Loaded script from {script_to_load_path}")
-            else:
-                print(f"Error: No script file found in '{base_dir}/1_script/'. Cannot determine video parameters for resume.")
-                print("Please ensure the script (e.g., story_script_with_audio.json) exists in the resume directory.")
-                return
-
-            # Define paths for Step 10 (create_final_video)
-            final_frames_dir = f"{base_dir}/5_final/frames"
-            final_audio_path = f"{base_dir}/6_audio/final_audio.mp3" # This is the output of Step 9
-
-            if not os.path.isdir(final_frames_dir) or not os.listdir(final_frames_dir):
-                print(f"Error: Frames directory '{final_frames_dir}' is missing or empty. Cannot resume video assembly.")
-                print("Ensure that frame compilation (up to Step 8) was completed in the previous run.")
-                return
-            if not os.path.exists(final_audio_path) or os.path.getsize(final_audio_path) == 0:
-                print(f"Error: Final audio file '{final_audio_path}' not found or is empty. Cannot resume video assembly.")
-                print("Ensure that final audio track creation (Step 9) was completed in the previous run.")
-                # Optionally, you could offer to re-run Step 8 and 9 here if desired.
-                # For now, we require final_audio_path to exist for resuming at Step 10.
-                return
-            
-            print("Resuming: Skipping steps 1-9. Proceeding directly to final video creation (Step 10).")
-
-    if not resume_base_dir: # This block runs for a new run, or if resume_base_dir was invalid and reset
+    # --- Initialization Phase ---
+    if resume_base_dir and os.path.isdir(resume_base_dir) and custom_script: # custom_script is the loaded script when resuming
+        base_dir = resume_base_dir
+        travel_story_script = custom_script # Script is passed by groq_reel_generator
+        print(f"Attempting to resume from: {base_dir}")
+        if not travel_story_script:
+            print("Error: Script not provided for resume. Cannot continue.")
+            return
+        print(f"Using loaded script: {travel_story_script.get('title', 'Untitled Script')}")
+    elif not resume_base_dir: # New run
         timestamp = int(time.time())
         base_dir = f"./story_reel_{timestamp}"
         os.makedirs(base_dir, exist_ok=True)
@@ -158,10 +132,14 @@ def main(custom_script=None, resume_base_dir=None, resume_state=None):
         os.makedirs(f"{base_dir}/4_transitions", exist_ok=True)
         os.makedirs(f"{base_dir}/5_final", exist_ok=True)
         os.makedirs(f"{base_dir}/6_audio", exist_ok=True)
+    else: # resume_base_dir provided but custom_script (loaded script) is not
+        print("Error: Resume directory provided, but no script loaded. Cannot resume.")
+        return
 
+    # --- Step 1: Script Generation/Loading ---
+    if not resume_base_dir: # New run logic for script
         print("Step 1: Generating narrative story content...")
-
-        # Use custom script if provided for a new run, otherwise use default
+        # custom_script is from groq_reel_generator for new runs
         if custom_script:
             travel_story_script = custom_script
             print(f"Using custom script: {travel_story_script['title']}")
@@ -268,11 +246,16 @@ def main(custom_script=None, resume_base_dir=None, resume_state=None):
         with open(script_path, 'w') as f:
             json.dump(travel_story_script, f, indent=4)
         print(f"Story script saved to {script_path}")
+        resume_state['script_generated'] = True # Mark as done for this new run
 
-        # Step 2: Generate enhanced narration
+    if not travel_story_script:
+        print("Error: Story script not available. Exiting.")
+        return
+
+    # --- Step 2: Narration ---
+    if not resume_state.get('narration_generated'):
         print("\nStep 2: Generating enhanced narration content...")
         for i, segment in enumerate(travel_story_script["segments"]):
-            # ... (existing narration generation logic) ...
             original_text = segment["text"]
             image_prompt = segment["image_prompt"]
             enhanced_narration = generate_narration(
@@ -285,11 +268,12 @@ def main(custom_script=None, resume_base_dir=None, resume_state=None):
         with open(narration_script_path, 'w') as f:
             json.dump(travel_story_script, f, indent=4)
         print(f"Narration script saved to {narration_script_path}")
+        resume_state['narration_generated'] = True
 
-        # Step 3: Generate audio files with guaranteed success
+    # --- Step 3: Audio Segments ---
+    if not resume_state.get('audio_segments_generated'):
         print("\nStep 3: Generating audio narrations with guaranteed synchronization...")
         for i, segment in enumerate(travel_story_script["segments"]):
-            # ... (existing audio generation logic using ensure_audio_for_segment) ...
             audio_path_segment = ensure_audio_for_segment(
                 segment, 
                 i+1, 
@@ -309,14 +293,22 @@ def main(custom_script=None, resume_base_dir=None, resume_state=None):
         with open(audio_script_path, 'w') as f:
             json.dump(travel_story_script, f, indent=4)
         print(f"Audio script saved to {audio_script_path}")
+        resume_state['audio_segments_generated'] = True
 
-        # Step 4: Generate images using mixed approach (Pexels + AI)
+    # --- Step 4: Image Generation ---
+    # Image dimensions (9:16 aspect ratio for vertical video)
+    HEIGHT = 512
+    WIDTH = 288
+    device = "cpu" # Determine device - CPU for compatibility
+
+    if not resume_state.get('images_generated'):
         print("\nStep 4: Generating images using mixed approach (Pexels + Stable Diffusion)...")
-        device = "cpu"
-        HEIGHT = 512
-        WIDTH = 288
+        print(f"Using device: {device}")
         pexels_available = test_pexels_api()
-        # ... (existing image generation logic, defining segment_images) ...
+        if pexels_available:
+            print("✅ Pexels API is working - will use stock photos where possible")
+        else:
+            print("⚠️  Pexels API unavailable - will use AI generation for all images")
         try:
             segment_images = generate_segment_images_mixed(
                 travel_story_script["segments"],
@@ -325,90 +317,167 @@ def main(custom_script=None, resume_base_dir=None, resume_state=None):
                 width=WIDTH,
                 device=device
             )
+            print(f"✅ Successfully generated {len(segment_images)} images")
         except Exception as e:
-            # ... (existing placeholder image fallback) ...
             print(f"\nError with mixed image generation: {e}, falling back to placeholders.")
             segment_images = [] # Ensure segment_images is initialized
             placeholder_dir = f"{base_dir}/2_images"
             os.makedirs(placeholder_dir, exist_ok=True)
             for i_ph, seg_ph in enumerate(travel_story_script["segments"]):
-                # ... (simplified placeholder creation)
-                ph_image = Image.new('RGB', (WIDTH, HEIGHT), color='grey')
+                colors = [(255, 200, 200), (200, 255, 200), (200, 200, 255), (255, 255, 200), 
+                          (255, 200, 255), (200, 255, 255), (255, 230, 200), (230, 255, 200)]
+                color = colors[i_ph % len(colors)]
+                ph_image = Image.new('RGB', (WIDTH, HEIGHT), color=color)
+                # Add text to placeholder if needed
                 ph_path = f"{placeholder_dir}/segment_{i_ph+1}.png"
                 ph_image.save(ph_path)
                 segment_images.append(ph_path)
+        resume_state['images_generated'] = True
+    else:
+        print("\nStep 4: Images previously generated. Loading paths...")
+        for i_img in range(len(travel_story_script["segments"])):
+            img_p = os.path.join(base_dir, "2_images", f"segment_{i_img+1}.png")
+            if os.path.exists(img_p):
+                segment_images.append(img_p)
+            else:
+                print(f"Error: Resuming, but image {img_p} is missing. Re-run image generation step.")
+                return
+        if len(segment_images) != len(travel_story_script["segments"]):
+            print("Error: Mismatch in expected images and found images during resume. Aborting.")
+            return
 
-        # Step 5: Apply Instagram filters to all images
+    # --- Step 5: Filters ---
+    if not resume_state.get('filters_applied', False): # Add 'filters_applied' to resume_state checks
         print("\nStep 5: Applying Instagram-style filters to images...")
-        # ... (existing filter application logic) ...
         filter_types = ["natural", "warm_travel", "moody", "nostalgic", "golden_hour"]
         for i_filter, img_path_filter in enumerate(segment_images):
-            # ... (apply_instagram_filter logic) ...
-            pass
+            try:
+                image = Image.open(img_path_filter)
+                filter_type = filter_types[i_filter % len(filter_types)]
+                print(f"Applying {filter_type} filter to segment {i_filter+1}")
+                filtered_image = apply_instagram_filter(image, filter_type)
+                filtered_image.save(img_path_filter, format="PNG", compress_level=0)
+            except Exception as e:
+                print(f"⚠️  Could not apply filter to segment {i_filter+1}: {e}")
+        resume_state['filters_applied'] = True
 
-        # Step 6: Generate dynamic video frames with PERFECT audio sync
+    # --- Step 6: Segment Frames ---
+    if not resume_state.get('segment_frames_generated'):
         print("\nStep 6: Generating dynamic video frames with perfect audio-visual sync...")
-        # ... (existing frame generation logic using create_enhanced_motion_frames) ...
         for i_motion, img_path_motion in enumerate(segment_images):
-            # ... (create_enhanced_motion_frames logic) ...
-            pass
+            segment_frames_dir = f"{base_dir}/3_frames/segment_{i_motion+1}"
+            os.makedirs(segment_frames_dir, exist_ok=True)
+            segment = travel_story_script["segments"][i_motion]
+            audio_duration = segment.get("audio_duration", segment.get("duration_seconds", 7.5))
+            # ... (rest of create_enhanced_motion_frames call and params) ...
+            create_enhanced_motion_frames(
+                img_path_motion, segment_frames_dir, audio_duration, 
+                segment.get("narration", segment.get("text", "")),
+                audio_duration=audio_duration, style=segment.get("style","professional"),
+                motion_type=segment.get("zoom_direction","gentle_pulse"), subtitle=segment.get("subtitle_mode",True)
+            )
+        resume_state['segment_frames_generated'] = True
 
-        # Step 7: Create advanced transitions between segments
+    # --- Step 7: Transitions ---
+    if not resume_state.get('transitions_generated'):
         print("\nStep 7: Creating advanced transitions between segments...")
-        # ... (existing transition creation logic) ...
         for i_trans in range(len(travel_story_script["segments"]) - 1):
-            # ... (create_transition_frames logic) ...
-            pass
+            # ... (create_transition_frames call and params) ...
+            create_transition_frames(base_dir, i_trans + 1, i_trans + 2, 
+                                     travel_story_script["segments"][i_trans].get("transition", "smooth_fade"),
+                                     1.0, WIDTH, HEIGHT)
+        resume_state['transitions_generated'] = True
 
-        # Step 8: Compile all frames into final video sequence
+    # --- Step 8: Compile Frames ---
+    final_frames_dir = os.path.join(base_dir, "5_final", "frames") 
+    compile_state_path = os.path.join(base_dir, "5_final", "compile_state.json")
+
+    if not resume_state.get('frames_compiled'):
         print("\nStep 8: Compiling all frames into final video with perfect audio sync...")
-        final_frames_dir = f"{base_dir}/5_final/frames" # Define here for new run
         os.makedirs(final_frames_dir, exist_ok=True)
         frame_count, audio_segments, current_time = compile_frames(
-            segment, 
+            base_dir, 
             final_frames_dir, 
             travel_story_script
         )
         print(f"✅ Compiled {frame_count} frames for final video")
         print(f"📊 Total duration: {current_time:.2f} seconds")
+        with open(compile_state_path, 'w') as f_state:
+            json.dump({"audio_segments": audio_segments, "current_time": current_time, "frame_count": frame_count}, f_state)
+        resume_state['frames_compiled'] = True
+    else:
+        print("\nStep 8: Frames previously compiled. Loading state...")
+        if os.path.exists(compile_state_path):
+            with open(compile_state_path, 'r') as f_state:
+                compile_data = json.load(f_state)
+                audio_segments = compile_data.get("audio_segments", [])
+                current_time = compile_data.get("current_time", 0)
+        else: # compile_state.json missing, must re-run compilation
+            print(f"Warning: {compile_state_path} missing. Re-running frame compilation.")
+            os.makedirs(final_frames_dir, exist_ok=True) # Ensure dir exists
+            frame_count, audio_segments, current_time = compile_frames(
+                base_dir, final_frames_dir, travel_story_script
+            )
+            with open(compile_state_path, 'w') as f_state:
+                json.dump({"audio_segments": audio_segments, "current_time": current_time, "frame_count": frame_count}, f_state)
+            print(f"✅ Re-compiled {frame_count} frames. Total duration: {current_time:.2f} seconds")
 
-        # Step 9: Create final audio track
+    # --- Step 9: Final Audio ---
+    final_audio_path = os.path.join(base_dir, "6_audio", "final_audio.mp3")
+    if not resume_state.get('final_audio_created'):
         print("\nStep 9: Creating final audio track with perfect synchronization...")
-        final_audio_path = f"{base_dir}/6_audio/final_audio.mp3" # Define here for new run
-        final_audio_path = create_audio_track(audio_segments, current_time, final_audio_path)
+        if not audio_segments and current_time == 0: # Check if audio_segments and current_time were loaded
+            print("Error: Audio segment data not available for final audio creation. This indicates an issue with resuming Step 8.")
+            return
+        
+        final_audio_path_result = create_audio_track(audio_segments, current_time, final_audio_path)
 
-        if final_audio_path:
-            final_audio_duration = get_audio_duration(final_audio_path)
+        if final_audio_path_result:
+            final_audio_path = final_audio_path_result # Update with actual path
+            final_audio_duration = get_audio_duration(final_audio_path) # Use the updated path
             if final_audio_duration:
                 print(f"✅ Final audio track: {final_audio_duration:.2f} seconds")
             else:
                 print("⚠️  Could not verify final audio duration")
         else:
             print("❌ Failed to create final audio track. Cannot proceed to video creation.")
-            return # Exit if audio track failed
+            return 
+        resume_state['final_audio_created'] = True
+    elif not os.path.exists(final_audio_path) or os.path.getsize(final_audio_path) == 0:
+        print(f"Error: Resuming, final_audio_created is true, but {final_audio_path} is missing or empty. Re-run audio creation.")
+        # This case should ideally re-trigger step 9 or be handled by more granular resume_state.
+        # For now, error out.
+        return
 
-    # Step 10: Create video from frames using FFMPEG (This step runs for both new and resumed runs)
+
+    # --- Step 10: Final Video ---
     print("\nStep 10: Creating final video with perfect audio-video sync...")
 
     current_dir = os.getcwd()
     
     # Determine if this run (new or resumed) is for a custom story for filename prefix
     is_custom_for_filename = False
-    default_script_title_in_this_file = "My Solo Trip to Kyoto" 
+    default_script_title_in_this_file = "My Solo Trip to Kyoto" # Title of default script in this file
 
-    if not resume_base_dir: # New run
-        if custom_script: # `custom_script` is the argument to main()
+    if travel_story_script:
+        # If a script was loaded (either new custom, new default, or resumed)
+        # Check if its title differs from the hardcoded default title in this file.
+        # This is a proxy for "is it a custom script from Groq?"
+        if travel_story_script.get("title", default_script_title_in_this_file) != default_script_title_in_this_file:
             is_custom_for_filename = True
-    else: # Resumed run
-        if travel_story_script: # Script loaded from resume_base_dir
-            if travel_story_script.get("title", default_script_title_in_this_file) != default_script_title_in_this_file:
-                is_custom_for_filename = True
+    elif custom_script: # Fallback if travel_story_script somehow didn't get set but custom_script (arg) was passed
+        is_custom_for_filename = True
     
     filename_prefix = "narrative_story" if is_custom_for_filename else "travel_story"
-    
-    final_video_no_audio = f"{current_dir}/{filename_prefix}_final_no_audio.mp4"
-    final_video = f"{current_dir}/{filename_prefix}_final_with_audio.mp4"
+    final_video_no_audio = os.path.join(base_dir, f"{filename_prefix}_final_no_audio.mp4")
+    final_video = os.path.join(base_dir, f"{filename_prefix}_final_with_audio.mp4")
 
+    if not os.path.isdir(final_frames_dir) or not os.listdir(final_frames_dir):
+        print(f"Error: Final frames directory '{final_frames_dir}' is missing or empty for final video creation.")
+        return
+    if not final_audio_path or not os.path.exists(final_audio_path):
+        print(f"Error: Final audio path '{final_audio_path}' is missing or invalid for final video creation.")
+        return
     success = create_final_video(
         final_frames_dir, 
         final_video_no_audio, 

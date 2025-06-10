@@ -57,28 +57,78 @@ def generate_custom_video():
             resume_dir_path = resume_dir_path_input
             print(f"Will attempt to resume from {resume_dir_path}")
 
-            # Detect script file
-            script_candidates = glob.glob(os.path.join(resume_dir_path, "story_script_*.json"))
-            generated_scripts_dir = os.path.join(resume_dir_path, "generated_scripts")
-            if os.path.isdir(generated_scripts_dir):
-                script_candidates += glob.glob(os.path.join(generated_scripts_dir, "story_script_*.json"))
-            if not script_candidates and os.path.isdir("generated_scripts"):
-                script_candidates += glob.glob(os.path.join("generated_scripts", "story_script_*.json"))
-            if script_candidates:
-                script_candidates.sort(key=os.path.getmtime, reverse=True)
-                script_path_for_messages = script_candidates[0]
-                print(f"Found script: {script_path_for_messages}")
-                resume_state['script'] = True
+            # Detect script file (most complete version)
+            script_path_audio_json = os.path.join(resume_dir_path, "1_script", "story_script_with_audio.json")
+            script_path_narration_json = os.path.join(resume_dir_path, "1_script", "story_script_with_narration.json")
+            script_path_base_json = os.path.join(resume_dir_path, "1_script", "story_script.json")
+            
+            script_to_load = None
+            if os.path.exists(script_path_audio_json):
+                script_to_load = script_path_audio_json
+                resume_state['script_generated'] = True
+                resume_state['narration_generated'] = True
+                resume_state['audio_segments_generated'] = True
+            elif os.path.exists(script_path_narration_json):
+                script_to_load = script_path_narration_json
+                resume_state['script_generated'] = True
+                resume_state['narration_generated'] = True
+                resume_state['audio_segments_generated'] = False
+            elif os.path.exists(script_path_base_json):
+                script_to_load = script_path_base_json
+                resume_state['script_generated'] = True
+                resume_state['narration_generated'] = False
+                resume_state['audio_segments_generated'] = False
             else:
-                print("No script file found in the provided directory.")
-                resume_state['script'] = False
+                # Fallback for scripts saved in ./generated_scripts/ by older versions or direct calls
+                alt_script_dir = os.path.join(os.path.dirname(resume_dir_path), "generated_scripts")
+                if os.path.isdir(alt_script_dir):
+                    # Try to match timestamp from resume_dir_path
+                    dir_name_parts = os.path.basename(resume_dir_path).split('_')
+                    if len(dir_name_parts) > 1:
+                        timestamp_str = dir_name_parts[-1]
+                        alt_script_path = os.path.join(alt_script_dir, f"story_script_{timestamp_str}.json")
+                        if os.path.exists(alt_script_path):
+                            script_to_load = alt_script_path
+                            print(f"Found script in alternative location: {script_to_load}")
+                            # Assume only script is done if loaded from here
+                            resume_state['script_generated'] = True
+                            resume_state['narration_generated'] = False 
+                            resume_state['audio_segments_generated'] = False
 
-            # Detect other steps (example: frames, audio, transitions, etc.)
-            # Adjust these checks to match your actual output structure
-            resume_state['frames'] = os.path.isdir(os.path.join(resume_dir_path, "frames"))
-            resume_state['audio'] = os.path.isfile(os.path.join(resume_dir_path, "audio.wav"))
-            resume_state['transitions'] = os.path.isdir(os.path.join(resume_dir_path, "transitions"))
-            resume_state['video'] = os.path.isfile(os.path.join(resume_dir_path, "final_video.mp4"))
+            if script_to_load:
+                script_path_for_messages = script_to_load
+                print(f"Found script: {script_path_for_messages}")
+                try:
+                    with open(script_to_load, 'r') as f:
+                        story_script_for_main = json.load(f)
+                except Exception as e:
+                    print(f"Error loading script {script_to_load}: {e}. Cannot resume.")
+                    return
+            else:
+                print(f"No script file found in {os.path.join(resume_dir_path, '1_script')}. Cannot resume.")
+                return
+
+            # Check for generated images (at least one)
+            first_image_path = os.path.join(resume_dir_path, "2_images", "segment_1.png")
+            resume_state['images_generated'] = os.path.exists(first_image_path)
+            resume_state['filters_applied'] = resume_state['images_generated'] # Assume filters applied if images exist
+
+            # Check for generated segment frames (at least one frame for one segment)
+            first_segment_frames_dir = os.path.join(resume_dir_path, "3_frames", "segment_1")
+            first_segment_frame_path = os.path.join(first_segment_frames_dir, "frame_0000.png") # Assuming 4-digit padding
+            resume_state['segment_frames_generated'] = os.path.exists(first_segment_frame_path)
+
+            # Check for transitions (if more than one segment)
+            if story_script_for_main and len(story_script_for_main.get("segments", [])) > 1:
+                first_transition_dir = os.path.join(resume_dir_path, "4_transitions", "transition_1_to_2")
+                first_transition_frame_path = os.path.join(first_transition_dir, "frame_0000.png")
+                resume_state['transitions_generated'] = os.path.exists(first_transition_frame_path)
+            else:
+                resume_state['transitions_generated'] = True # No transitions needed
+
+            compiled_frames_dir = os.path.join(resume_dir_path, "5_final", "frames")
+            resume_state['frames_compiled'] = os.path.isdir(compiled_frames_dir) and bool(os.listdir(compiled_frames_dir))
+            resume_state['final_audio_created'] = os.path.exists(os.path.join(resume_dir_path, "6_audio", "final_audio.mp3"))
 
             print("Resume state detected:")
             for k, v in resume_state.items():
