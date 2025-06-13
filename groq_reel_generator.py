@@ -105,26 +105,57 @@ def generate_custom_video():
                     print(f"Error loading script {script_to_load}: {e}. Cannot resume.")
                     return
             else:
-                print(f"No script file found in {os.path.join(resume_dir_path, '1_script')}. Cannot resume.")
+                print(f"No script file found in {os.path.join(resume_dir_path, '1_script')} or alternative locations. Cannot resume.")
                 return
 
-            # Check for generated images (at least one)
-            first_image_path = os.path.join(resume_dir_path, "2_images", "segment_1.png")
-            resume_state['images_generated'] = os.path.exists(first_image_path)
-            resume_state['filters_applied'] = resume_state['images_generated'] # Assume filters applied if images exist
+            if story_script_for_main:
+                num_segments_in_script = len(story_script_for_main.get("segments", []))
 
-            # Check for generated segment frames (at least one frame for one segment)
-            first_segment_frames_dir = os.path.join(resume_dir_path, "3_frames", "segment_1")
-            first_segment_frame_path = os.path.join(first_segment_frames_dir, "frame_0000.png") # Assuming 4-digit padding
-            resume_state['segment_frames_generated'] = os.path.exists(first_segment_frame_path)
+                # Check for generated images (all images must exist)
+                all_images_exist = True
+                if num_segments_in_script > 0:
+                    for i in range(num_segments_in_script):
+                        image_path = os.path.join(resume_dir_path, "2_images", f"segment_{i+1}.png")
+                        if not os.path.exists(image_path):
+                            all_images_exist = False
+                            break
+                else:
+                    all_images_exist = False # No segments means no images needed, or script is invalid
+                resume_state['images_generated'] = all_images_exist
+                resume_state['filters_applied'] = all_images_exist # Assume filters applied if all images exist
 
-            # Check for transitions (if more than one segment)
-            if story_script_for_main and len(story_script_for_main.get("segments", [])) > 1:
-                first_transition_dir = os.path.join(resume_dir_path, "4_transitions", "transition_1_to_2")
-                first_transition_frame_path = os.path.join(first_transition_dir, "frame_0000.png")
-                resume_state['transitions_generated'] = os.path.exists(first_transition_frame_path)
+                # Check for generated segment frames (ALL segments must have frames)
+                all_segment_frames_exist = True
+                if num_segments_in_script > 0:
+                    for i in range(num_segments_in_script):
+                        segment_frames_dir = os.path.join(resume_dir_path, "3_frames", f"segment_{i+1}")
+                        first_frame_in_segment = os.path.join(segment_frames_dir, "frame_0000.png")
+                        if not (os.path.isdir(segment_frames_dir) and os.path.exists(first_frame_in_segment)):
+                            all_segment_frames_exist = False
+                            break
+                else: 
+                    all_segment_frames_exist = False 
+                resume_state['segment_frames_generated'] = all_segment_frames_exist
+
+                # Check for transitions (ALL transitions must exist if num_segments > 1)
+                all_transitions_exist = True
+                if num_segments_in_script > 1:
+                    for i in range(num_segments_in_script - 1):
+                        transition_dir = os.path.join(resume_dir_path, "4_transitions", f"transition_{i+1}_to_{i+2}")
+                        first_frame_in_transition = os.path.join(transition_dir, "frame_0000.png")
+                        if not (os.path.isdir(transition_dir) and os.path.exists(first_frame_in_transition)):
+                            all_transitions_exist = False
+                            break
+                else: # No transitions needed for 0 or 1 segment
+                    all_transitions_exist = True
+                resume_state['transitions_generated'] = all_transitions_exist
             else:
-                resume_state['transitions_generated'] = True # No transitions needed
+                print("Script could not be loaded properly. Cannot determine resume state accurately.")
+                # Set all to false to be safe if script is None
+                resume_state['images_generated'] = False
+                resume_state['filters_applied'] = False
+                resume_state['segment_frames_generated'] = False
+                resume_state['transitions_generated'] = False
 
             compiled_frames_dir = os.path.join(resume_dir_path, "5_final", "frames")
             resume_state['frames_compiled'] = os.path.isdir(compiled_frames_dir) and bool(os.listdir(compiled_frames_dir))
