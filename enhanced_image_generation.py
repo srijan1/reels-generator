@@ -32,7 +32,7 @@ def login_to_huggingface():
         log_exception(e, "Error during Hugging Face login")
         print("❌ Error during Hugging Face login. See log for details.")
 
-def setup_stable_diffusion(device="cuda"):
+def setup_stable_diffusion(device="cpu"):
     try:
         print("🤖 Loading Stable Diffusion model - this may take a while on CPU...")
         login_to_huggingface()
