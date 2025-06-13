@@ -1,0 +1,11 @@
+torch
+diffusers
+huggingface_hub
+pillow
+pexels_api
+requests
+tqdm
+numpy
+opencv-python
+audioop-lts
+pydub

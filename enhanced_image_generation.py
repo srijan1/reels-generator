@@ -169,8 +169,8 @@ def determine_image_strategy(segments):
     total_segments = len(segments)
     
     # Determine how many should use each method
-    # pexels_count = total_segments // 2
-    pexels_count = total_segments
+    pexels_count = total_segments // 2
+    # pexels_count = total_segments
     ai_count = total_segments - pexels_count
     
     print(f"📊 Image Generation Strategy:")

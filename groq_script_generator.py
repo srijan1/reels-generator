@@ -7,9 +7,126 @@ import requests
 import json
 import time
 import random
+import os
+import datetime
+from groq import Groq
 
 # API Key for Groq API
 GROQ_API_KEY = "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"
+# Initialize Groq client
+GROQ_CLIENT = Groq(api_key=GROQ_API_KEY)
+
+
+def write_output_to_file(content, label="output"):
+    """Write content to a timestamped txt file in an outputs directory."""
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = "groq_outputs"
+    os.makedirs(out_dir, exist_ok=True)
+    filename = f"{label}_{timestamp}.txt"
+    filepath = os.path.join(out_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"[INFO] {label} written to {filepath}")
+    return filepath
+
+def generate_brand_brief(product_name_or_complex_topic, duration_minutes, num_segments, segment_seconds):
+    """
+    LLM1: Research Agent - Generates a detailed brand brief.
+    """
+    prompt = f"""Analyze '{product_name_or_complex_topic}' for a {duration_minutes*60}-second commercial/video creation, structured into {num_segments} segments of approximately {segment_seconds} seconds each.
+
+    Research Output Required (Advertising Brief Format):
+    - Title: A concise and catchy title for the campaign/video.
+    - Style: Suggested overall style (e.g., "cinematic heartfelt narrative", "energetic product showcase", "inspirational mini-documentary").
+    - Core Brand/Topic Values: 3-5 bullet points describing the core message or values to convey. Include an emotional impact score (1-10) for each.
+    - Target Demographics: Describe the primary target audience (age ranges, key psychographics, relevant interests, or spending patterns if applicable).
+    - Competitive Differentiation/Unique Angle: 3 unique selling propositions or unique aspects of the topic that make it stand out.
+    - Visual Identity Cues: Suggest 5 HEX color codes relevant to the brand/topic with brief psychological associations (e.g., #FFD700 - Gold: optimism, warmth).
+    - Emotional Tone Matrix: Define the desired emotional journey or overall tone (e.g., excitement: 0-10, trust: 0-10, urgency: 0-10, inspiration: 0-10, humor: 0-10).
+    - Scene Architecture: Outline {num_segments} distinct scenes. For each scene, specify its purpose (e.g., "Introduction", "Problem Setup", "Solution Reveal", "Benefit Showcase", "Call to Action") and a suggested transition type to the next scene (e.g., "smooth_fade", "slide_left", "whip_pan"). Each scene should be approximately {segment_seconds} seconds.
+
+    Format the entire output as a structured advertising brief. This brief will be used by a creative agent to generate a full video script.
+    Ensure all requested sections are thoroughly addressed with measurable parameters where applicable."""
+
+    print(f"LLM1 (Research Agent): Generating brand brief for '{product_name_or_complex_topic}'...")
+    try:
+        response = GROQ_CLIENT.chat.completions.create(
+            model="llama3-70b-8192", # Research model
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.6,        # Lower temperature for factual research
+            max_tokens=2048
+        )
+        brief_content = response.choices[0].message.content
+        write_output_to_file(brief_content, label="llm1_brand_brief")
+        print("LLM1 (Research Agent): Brand brief generated.")
+        # print(f"LLM1 Output (Brief):\n{brief_content}\n") # Optional: for debugging
+        return brief_content
+    except Exception as e:
+        print(f"Error calling Groq API (LLM1 - Research Agent): {e}")
+        return None
+
+def create_script_treatment(brief, segment_seconds, num_segments):
+    """
+    LLM2: Creative Treatment Generator - Transforms the brief into a script.
+    """
+    creative_prompt = f"""Transform this comprehensive advertising brief into a compelling {int(segment_seconds * num_segments)}-second video script consisting of exactly {num_segments} segments.
+
+    ADVERTISING BRIEF:
+    {brief}
+
+    Creative Requirements:
+    - Adhere strictly to the number of segments ({num_segments}) and approximate duration per segment ({segment_seconds} seconds) outlined in the brief's Scene Architecture.
+    - Develop a fresh, unconventional creative treatment based on the brief.
+    - For each of the {num_segments} scenes, provide a detailed scene-by-scene breakdown. Each scene must include:
+      * "text": Exact voiceover/caption text for the segment (15-30 words, engaging and relevant to the scene's purpose from the brief).
+      * "image_prompt": Precise visual descriptions suitable for an AI image generator (cinematic quality, detailed elements, mood, and ensuring it aligns with the scene's purpose and visual identity cues from the brief). Specify vertical 9:16 format.
+      * "camera_specifications": Suggested camera shot (e.g., "wide shot establishing location", "medium close-up on character's face", "dynamic tracking shot") and camera movement (e.g., "slow zoom in", "pan right", "static").
+      * "lighting_requirements": Brief description of lighting style (e.g., "bright and airy", "dramatic low-key", "golden hour", "Arri Alexa style soft cinematic").
+      * "transition_to_next": The transition effect to the next scene (should match the transition type suggested in the brief's Scene Architecture for this scene). For the last segment, this can be "ends".
+
+    Style Parameters (interpret creatively):
+    - Stylization: 300 (aim for high visual impact and a polished, professional look)
+    - Weirdness: 0 (ensure the treatment is commercially appropriate and aligns with the brief's tone)
+    - Variety: 50 (provide balanced visual diversity across scenes, avoiding monotony)
+
+    Output Format:
+    Respond with ONLY a valid JSON object. The JSON structure should be:
+    {{
+      "title": "Extracted or creatively derived Campaign Title from Brief",
+      "style": "Extracted or creatively derived video style from Brief (e.g., cinematic commercial narrative)",
+      "aspect_ratio": "9:16",
+      "segments": [
+        {{
+          "text": "Exact voiceover/caption text for segment 1 (15-30 words)",
+          "text_overlay": true,
+          "text_style": "modern", // Default, can be refined later
+          "duration_seconds": {segment_seconds}, // Use the segment_seconds value
+          "image_prompt": "Detailed, cinematic scene description for segment 1, vertical 9:16 format, reflecting brief's visual identity and scene purpose. Include camera_specifications and lighting_requirements implicitly or explicitly here.",
+          "zoom_direction": "Derived from camera_specifications (e.g., 'slow_zoom_in', 'pan_right', 'static')", // Or a more general Ken Burns effect like 'in', 'out', 'pan'
+          "transition": "Transition effect to next segment (from brief's Scene Architecture)",
+          "subtitle_mode": true
+        }}
+        // ... (repeat for all {num_segments} segments)
+      ]
+    }}
+    CRITICAL: Ensure the "image_prompt" for each segment is rich and descriptive, incorporating the camera and lighting details. The "zoom_direction" should be a simplified Ken Burns style effect based on the camera movement. The "transition" must match the brief.
+    """
+    print(f"LLM2 (Creative Agent): Generating script treatment from brief...")
+    try:
+        response = GROQ_CLIENT.chat.completions.create(
+            model="llama3-8b-8192", # Creative model (alternative to decommissioned Mixtral)
+            messages=[{"role": "user", "content": creative_prompt}],
+            temperature=0.8,          # Higher temperature for creativity
+            max_tokens=3500           # Increased to accommodate detailed JSON for 8 segments
+        )
+        script_content = response.choices[0].message.content
+        write_output_to_file(script_content, label="llm2_script_treatment")
+        print("LLM2 (Creative Agent): Script treatment generated.")
+        # print(f"LLM2 Output (Script Treatment):\n{script_content}\n") # Optional: for debugging
+        return script_content
+    except Exception as e:
+        print(f"Error calling Groq API (LLM2 - Creative Agent): {e}")
+        return None
 
 def generate_story_script(story_topic, audience="general", duration_minutes=1, num_segments=8):
     """
@@ -29,77 +146,98 @@ def generate_story_script(story_topic, audience="general", duration_minutes=1, n
     # Calculate segment duration based on total video length
     segment_seconds = (duration_minutes * 60) / num_segments
     
-    # Determine if this is a simple topic or complex creative brief
+    # Determine if this is a simple topic or a complex creative brief (potential product/brand)
     is_complex_brief = detect_complex_brief(story_topic)
     
-    # Create highly specific prompts based on brief complexity
-    if is_complex_brief:
-        prompt = create_professional_brief_prompt(story_topic, audience, duration_minutes, num_segments, segment_seconds)
-    else:
-        prompt = create_topic_focused_prompt(story_topic, audience, duration_minutes, num_segments, segment_seconds)
-    
     try:
-        # Call Groq API
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GROQ_API_KEY}"
-        }
-        
-        system_message = create_system_message(story_topic, audience, is_complex_brief)
-        
-        payload = {
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_message
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
-            "temperature": 0.8,  # High creativity for varied outputs
-            "max_tokens": 3000,  # More space for detailed responses
-            "top_p": 0.9  # Add randomness for variety
-        }
-        
-        # Make the API call
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
-        
-        if response.status_code != 200:
-            print(f"Error calling Groq API: {response.status_code}")
-            print(f"Response: {response.text}")
-            return fallback_script(story_topic, audience, duration_minutes, num_segments)
+        script_text = None
+        if is_complex_brief:
+            # --- New Two-Agent Pipeline for Complex Briefs/Products ---
+            print("Using Advanced Two-Agent Pipeline for script generation...")
+            # Agent 1: Generate Brand Brief
+            brand_brief = generate_brand_brief(story_topic, duration_minutes, num_segments, segment_seconds)
+            if not brand_brief:
+                print("Failed to generate brand brief from LLM1. Using fallback script.")
+                fallback = fallback_script(story_topic, audience, duration_minutes, num_segments)
+                write_output_to_file(json.dumps(fallback, indent=2), label="fallback_script")
+                return fallback
+
+            # Agent 2: Create Script Treatment from Brief
+            # Pass segment_seconds and num_segments to ensure LLM2 adheres to the structure
+            script_text = create_script_treatment(brand_brief, segment_seconds, num_segments)
+            if not script_text:
+                print("Failed to generate script treatment from LLM2. Using fallback script.")
+                fallback = fallback_script(story_topic, audience, duration_minutes, num_segments)
+                write_output_to_file(json.dumps(fallback, indent=2), label="fallback_script")
+                return fallback
+        else:
+            # --- Existing Single-Agent Pipeline for Simple Topics ---
+            print("Using Single-Agent Pipeline for simple topic script generation...")
+            prompt = create_topic_focused_prompt(story_topic, audience, duration_minutes, num_segments, segment_seconds)
+            system_message = create_system_message(story_topic, audience, is_complex_brief=False)
             
-        # Parse response
-        result = response.json()
-        script_text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        
+            # Using the requests-based API call for the existing path
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {GROQ_API_KEY}"
+            }
+            payload = {
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt}
+                ],
+                "model": "meta-llama/llama-4-scout-17b-16e-instruct", # Existing model for this path
+                # "model": "llama3-8b-8192", # Alternative: could use Llama 3 8B for faster simple topics
+                "temperature": 0.8,
+                "max_tokens": 3000,
+                "top_p": 0.9
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            
+            if response.status_code != 200:
+                print(f"Error calling Groq API (Single-Agent): {response.status_code}")
+                print(f"Response: {response.text}")
+                fallback = fallback_script(story_topic, audience, duration_minutes, num_segments)
+                write_output_to_file(json.dumps(fallback, indent=2), label="fallback_script")
+                return fallback
+            
+            result = response.json()
+            script_text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            write_output_to_file(script_text, label="single_agent_script_raw")
+
         if not script_text:
-            print("Empty response from Groq API")
-            return fallback_script(story_topic, audience, duration_minutes, num_segments)
-        
-        # Extract JSON from the response text
+            print("Empty response from Groq API.")
+            fallback = fallback_script(story_topic, audience, duration_minutes, num_segments)
+            write_output_to_file(json.dumps(fallback, indent=2), label="fallback_script")
+            return fallback
+
+        # Extract JSON from the response text (common for both pipelines)
         script_json = extract_json_from_text(script_text)
         if not script_json:
-            print("Could not extract valid JSON from Groq response")
-            print(f"Raw response preview: {script_text[:200]}...")
-            return fallback_script(story_topic, audience, duration_minutes, num_segments)
-        
+            print("Could not extract valid JSON from Groq response.")
+            print(f"Raw response preview: {script_text[:500]}...")
+            fallback = fallback_script(story_topic, audience, duration_minutes, num_segments)
+            write_output_to_file(json.dumps(fallback, indent=2), label="fallback_script")
+            return fallback
+            
         # Validate and enhance the script
         enhanced_script = validate_and_enhance_script(script_json, story_topic, audience)
-        
+        write_output_to_file(json.dumps(enhanced_script, indent=2), label="final_script_json")
         print("Successfully generated narrative script with Groq API!")
         return enhanced_script
         
     except requests.exceptions.RequestException as e:
         print(f"Network error generating script with Groq API: {e}")
-        return fallback_script(story_topic, audience, duration_minutes, num_segments)
+        fallback = fallback_script(story_topic, audience, duration_minutes, num_segments)
+        write_output_to_file(json.dumps(fallback, indent=2), label="fallback_script")
+        return fallback
     except Exception as e:
-        print(f"Error generating script with Groq API: {e}")
-        return fallback_script(story_topic, audience, duration_minutes, num_segments)
+        print(f"Overall error in generate_story_script: {e}")
+        fallback = fallback_script(story_topic, audience, duration_minutes, num_segments)
+        write_output_to_file(json.dumps(fallback, indent=2), label="fallback_script")
+        return fallback
 
 def detect_complex_brief(story_topic):
     """Detect if the input is a complex creative brief or simple topic"""
@@ -152,7 +290,7 @@ FORMAT: Respond with ONLY valid JSON:
       "text_overlay": true,
       "text_style": "modern",
       "duration_seconds": {int(segment_seconds)},
-      "image_prompt": "Highly detailed, cinematic scene description that serves the campaign narrative, professional video production quality, vertical 9:16 format",
+      "image_prompt": "Highly detailed, cinematic scene description that serves the campaign narrative, professional video production quality, vertical 9:16 format. Incorporate camera specifications and lighting requirements here.",
       "zoom_direction": "cinematic camera movement",
       "transition": "professional transition style",
       "subtitle_mode": true

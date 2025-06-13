@@ -21,6 +21,8 @@ generated_scripts/
 
 # If you have a specific scripts directory for custom scripts from user input
 scripts/ 
+#script experiments
+groq_outputs/
 # (Note: if 'scripts/' contains scripts you *do* want to commit, 
 #  be more specific, e.g., scripts/story_script_*.json if those are temporary)
 
