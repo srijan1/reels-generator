@@ -12,7 +12,8 @@ from PIL import Image, ImageDraw, ImageFont
 from image_effects import apply_instagram_filter
 from enhanced_motion import create_enhanced_motion_frames
 from transitions import create_transition_frames
-from pyttsx3_integration import generate_narration, convert_text_to_speech, get_audio_duration, adjust_speech_to_duration
+#from pyttsx3_integration import generate_narration, convert_text_to_speech, get_audio_duration, adjust_speech_to_duration
+from piper_tts_integration import generate_narration, convert_text_to_speech, get_audio_duration, adjust_speech_to_duration
 from enhanced_video_assembly import compile_frames, create_audio_track, create_final_video
 from image_generation import generate_segment_image, setup_stable_diffusion
 from utils import adjust_segment_duration

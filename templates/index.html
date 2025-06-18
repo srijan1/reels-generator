@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎬 Groq Reel Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f23 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #e0e0e0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(138, 43, 226, 0.3);
+            overflow: hidden;
+            border: 1px solid rgba(138, 43, 226, 0.3);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #8a2be2, #4b0082, #301934);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+        }
+
+        .credits-display {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 20px;
+            border-radius: 25px;
+            border: 2px solid #8a2be2;
+            box-shadow: 0 0 20px rgba(138, 43, 226, 0.5);
+        }
+
+        .credits-number {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #da70d6;
+            text-shadow: 0 0 10px rgba(218, 112, 214, 0.8);
+        }
+
+        .credits-label {
+            font-size: 0.9rem;
+            color: #b19cd9;
+            margin-top: 2px;
+        }
+
+        .main-content {
+            padding: 40px;
+            background: rgba(26, 26, 46, 0.9);
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #da70d6;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid rgba(138, 43, 226, 0.5);
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: rgba(0, 0, 0, 0.6);
+            color: #e0e0e0;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #8a2be2;
+            box-shadow: 0 0 0 3px rgba(138, 43, 226, 0.3);
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        .form-group textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #8a2be2, #4b0082);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 15px rgba(138, 43, 226, 0.4);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(138, 43, 226, 0.6);
+            background: linear-gradient(135deg, #9a32f2, #5b1092);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: 0 4px 15px rgba(138, 43, 226, 0.2);
+        }
+
+        .credit-cost {
+            display: inline-block;
+            background: rgba(138, 43, 226, 0.2);
+            color: #da70d6;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            margin-left: 10px;
+            border: 1px solid rgba(138, 43, 226, 0.5);
+        }
+
+        .row {
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+        }
+
+        .col {
+            flex: 1;
+        }
+
+        .progress-container {
+            display: none;
+            margin-top: 30px;
+            padding: 25px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 15px;
+            border-left: 4px solid #8a2be2;
+            border: 1px solid rgba(138, 43, 226, 0.3);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: rgba(75, 0, 130, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            border: 1px solid rgba(138, 43, 226, 0.5);
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #8a2be2, #da70d6);
+            width: 0%;
+            transition: width 0.5s ease;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(138, 43, 226, 0.8);
+        }
+
+        .progress-text {
+            font-weight: bold;
+            color: #da70d6;
+            margin-bottom: 10px;
+        }
+
+        .progress-message {
+            color: #b19cd9;
+            font-style: italic;
+        }
+
+        .result-container {
+            display: none;
+            margin-top: 30px;
+            padding: 25px;
+            background: rgba(0, 100, 0, 0.2);
+            border: 1px solid rgba(0, 200, 0, 0.5);
+            border-radius: 15px;
+            border-left: 4px solid #32cd32;
+        }
+
+        .video-preview {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .video-preview video {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 15px;
+            border: 2px solid rgba(138, 43, 226, 0.5);
+            box-shadow: 0 10px 30px rgba(138, 43, 226, 0.3);
+        }
+
+        .video-controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn-play {
+            background: linear-gradient(135deg, #32cd32, #228b22);
+        }
+
+        .btn-play:hover {
+            background: linear-gradient(135deg, #42dd42, #328b32);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6a1b9a, #4a148c);
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #7a2baa, #5a158c);
+        }
+
+        .error-container {
+            display: none;
+            margin-top: 30px;
+            padding: 25px;
+            background: rgba(139, 0, 0, 0.2);
+            border: 1px solid rgba(255, 0, 0, 0.5);
+            border-radius: 15px;
+            border-left: 4px solid #dc3545;
+        }
+
+        @media (max-width: 768px) {
+            .row {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .main-content {
+                padding: 20px;
+            }
+
+            .credits-display {
+                position: relative;
+                top: auto;
+                right: auto;
+                margin: 10px auto;
+                display: block;
+                width: fit-content;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="credits-display">
+                <div class="credits-number" id="creditsDisplay">200</div>
+                <div class="credits-label">Credits</div>
+            </div>
+            <h1>🎬 Groq Reel Generator</h1>
+            <p>Create amazing video content with AI-powered storytelling and crystal-clear audio</p>
+        </div>
+
+        <div class="main-content">
+            <h2>🎬 Create Your Video</h2>
+
+            <form id="generateForm">
+                <div class="form-group">
+                    <label for="story_topic">📝 Story Topic or Creative Brief:</label>
+                    <textarea 
+                        id="story_topic" 
+                        name="story_topic" 
+                        placeholder="Enter your story topic, creative brief, or narrative idea. Examples:
+• 'My journey to overcome fear of public speaking'
+• 'डर पर काबू पाना' (Hindi topics supported)
+• 'A friendship that changed my life'
+• Professional campaign brief for product launch"
+                        required></textarea>
+                </div>
+
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="audience">🎯 Target Audience:</label>
+                            <select id="audience" name="audience">
+                                <option value="general">General (All Ages)</option>
+                                <option value="children">Children (Kid-friendly)</option>
+                                <option value="adult">Adults (Mature Themes)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="duration">⏱️ Duration (minutes):</label>
+                            <select id="duration" name="duration" onchange="updateCreditCost()">
+                                <option value="0.5" data-cost="10">30 seconds</option>
+                                <option value="1" data-cost="20" selected>1 minute</option>
+                                <option value="1.5" data-cost="30">1.5 minutes</option>
+                                <option value="2" data-cost="40">2 minutes</option>
+                                <option value="3" data-cost="60">3 minutes</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="language">🌍 Language:</label>
+                            <select id="language" name="language">
+                                <option value="en">English</option>
+                                <option value="hi">Hindi (हिंदी)</option>
+                                <option value="auto">Auto-detect</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn" id="generateBtn">
+                    🚀 Generate Video
+                    <span class="credit-cost" id="creditCost">Cost: 20 credits</span>
+                </button>
+            </form>
+
+            <!-- Progress Container -->
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-text" id="progressText">Preparing...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-message" id="progressMessage">Initializing video generation...</div>
+            </div>
+
+            <!-- Result Container -->
+            <div class="result-container" id="resultContainer">
+                <h3>✅ Video Generated Successfully!</h3>
+                <p id="resultMessage">Your video has been created and is ready for preview and download.</p>
+                
+                <!-- Video Preview -->
+                <div class="video-preview" id="videoPreview">
+                    <video id="generatedVideo" controls preload="metadata" style="display: none;">
+                        <source id="videoSource" src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    <div id="videoLoadingMsg" style="color: #da70d6; margin: 20px 0;">
+                        🎬 Loading video preview...
+                    </div>
+                </div>
+
+                <!-- Video Controls -->
+                <div class="video-controls">
+                    <button class="btn btn-play" id="playBtn" onclick="playVideo()" style="display: none;">
+                        ▶️ Play Video
+                    </button>
+                    <button class="btn btn-secondary" id="downloadBtn">
+                        💾 Download Video
+                    </button>
+                    <button class="btn btn-secondary" id="shareBtn" onclick="shareVideo()">
+                        🔗 Copy Link
+                    </button>
+                </div>
+
+                <!-- Video Info -->
+                <div id="videoInfo" style="margin-top: 20px; padding: 15px; background: rgba(138, 43, 226, 0.1); border-radius: 10px; display: none;">
+                    <h4 style="color: #da70d6; margin-bottom: 10px;">📊 Video Details</h4>
+                    <div id="videoDetails"></div>
+                </div>
+            </div>
+
+            <!-- Error Container -->
+            <div class="error-container" id="errorContainer">
+                <h3>❌ Generation Failed</h3>
+                <p id="errorMessage">An error occurred during video generation.</p>
+                <button class="btn" onclick="debugGeneration()" id="debugBtn" style="margin-top: 15px; display: none;">
+                    🔍 Debug Info
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentGenerationId = null;
+        let statusCheckInterval = null;
+        let userCredits = 200; // Starting credits like Leonardo AI
+
+        // Credit management functions
+        function updateCreditsDisplay() {
+            document.getElementById('creditsDisplay').textContent = userCredits;
+            
+            // Add visual feedback for low credits
+            const creditsDisplay = document.getElementById('creditsDisplay');
+            if (userCredits < 10) {
+                creditsDisplay.style.color = '#ff6b6b';
+            } else if (userCredits < 50) {
+                creditsDisplay.style.color = '#ffa500';
+            } else {
+                creditsDisplay.style.color = '#da70d6';
+            }
+        }
+
+        function getCreditCost(duration) {
+            const costs = {
+                '0.5': 10,
+                '1': 20,
+                '1.5': 30,
+                '2': 40,
+                '3': 60
+            };
+            return costs[duration] || 20;
+        }
+
+        function updateCreditCost() {
+            const duration = document.getElementById('duration').value;
+            const cost = getCreditCost(duration);
+            document.getElementById('creditCost').textContent = `Cost: ${cost} credits`;
+            
+            // Check if user has enough credits
+            const generateBtn = document.getElementById('generateBtn');
+            if (userCredits < cost) {
+                generateBtn.disabled = true;
+                generateBtn.style.opacity = '0.5';
+            } else {
+                generateBtn.disabled = false;
+                generateBtn.style.opacity = '1';
+            }
+        }
+
+        function deductCredits(amount) {
+            userCredits = Math.max(0, userCredits - amount);
+            updateCreditsDisplay();
+            // Note: In a real app, you'd save this to a backend
+        }
+
+        // Video generation form submission
+        document.getElementById('generateForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const duration = document.getElementById('duration').value;
+            const cost = getCreditCost(duration);
+            
+            // Check credits before proceeding
+            if (userCredits < cost) {
+                alert(`⚠️ Insufficient credits. You need ${cost} credits but only have ${userCredits} credits.`);
+                return;
+            }
+            
+            const formData = new FormData(this);
+            const generateBtn = document.getElementById('generateBtn');
+            const progressContainer = document.getElementById('progressContainer');
+            const resultContainer = document.getElementById('resultContainer');
+            const errorContainer = document.getElementById('errorContainer');
+            
+            // Reset displays
+            progressContainer.style.display = 'none';
+            resultContainer.style.display = 'none';
+            errorContainer.style.display = 'none';
+            
+            // Disable generate button
+            generateBtn.disabled = true;
+            generateBtn.textContent = '🔄 Generating...';
+            
+            // Deduct credits immediately
+            deductCredits(cost);
+            
+            fetch('/generate', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.generation_id) {
+                    currentGenerationId = data.generation_id;
+                    progressContainer.style.display = 'block';
+                    startStatusChecking();
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            })
+            .catch(error => {
+                // Refund credits on error
+                userCredits += cost;
+                updateCreditsDisplay();
+                
+                showError(error.message);
+                resetGenerateButton();
+            });
+        });
+
+        function startStatusChecking() {
+            if (statusCheckInterval) {
+                clearInterval(statusCheckInterval);
+            }
+            
+            statusCheckInterval = setInterval(() => {
+                if (currentGenerationId) {
+                    checkGenerationStatus(currentGenerationId);
+                }
+            }, 2000); // Check every 2 seconds
+        }
+
+        function checkGenerationStatus(generationId) {
+            fetch(`/status/${generationId}`)
+            .then(response => response.json())
+            .then(data => {
+                updateProgress(data);
+                
+                if (data.status === 'completed') {
+                    clearInterval(statusCheckInterval);
+                    showSuccess(generationId);
+                    resetGenerateButton();
+                } else if (data.status === 'error') {
+                    clearInterval(statusCheckInterval);
+                    showError(data.error || 'Unknown error');
+                    resetGenerateButton();
+                }
+            })
+            .catch(error => {
+                console.error('Status check error:', error);
+            });
+        }
+
+        function updateProgress(data) {
+            const progressText = document.getElementById('progressText');
+            const progressFill = document.getElementById('progressFill');
+            const progressMessage = document.getElementById('progressMessage');
+            
+            progressText.textContent = `Progress: ${data.progress || 0}%`;
+            progressFill.style.width = `${data.progress || 0}%`;
+            progressMessage.textContent = data.message || 'Processing...';
+        }
+
+        function showSuccess(generationId) {
+            const progressContainer = document.getElementById('progressContainer');
+            const resultContainer = document.getElementById('resultContainer');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const videoElement = document.getElementById('generatedVideo');
+            const videoSource = document.getElementById('videoSource');
+            const playBtn = document.getElementById('playBtn');
+            const videoLoadingMsg = document.getElementById('videoLoadingMsg');
+            const videoInfo = document.getElementById('videoInfo');
+            const videoDetails = document.getElementById('videoDetails');
+            
+            progressContainer.style.display = 'none';
+            resultContainer.style.display = 'block';
+            
+            // Set up video preview
+            const videoUrl = `/video/${generationId}`;
+            videoSource.src = videoUrl;
+            
+            // Handle video loading
+            videoElement.addEventListener('loadedmetadata', function() {
+                videoLoadingMsg.style.display = 'none';
+                videoElement.style.display = 'block';
+                playBtn.style.display = 'inline-block';
+                
+                // Show video details
+                const duration = Math.round(videoElement.duration);
+                const minutes = Math.floor(duration / 60);
+                const seconds = duration % 60;
+                
+                videoDetails.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span>Duration:</span>
+                        <span>${minutes}:${seconds.toString().padStart(2, '0')}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span>Format:</span>
+                        <span>MP4 (H.264)</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Resolution:</span>
+                        <span>${videoElement.videoWidth}x${videoElement.videoHeight}</span>
+                    </div>
+                `;
+                videoInfo.style.display = 'block';
+            });
+            
+            videoElement.addEventListener('error', function() {
+                videoLoadingMsg.innerHTML = '⚠️ Video preview not available, but download should work.';
+                videoLoadingMsg.style.color = '#ffa500';
+            });
+            
+            // Load the video
+            videoElement.load();
+            
+            // Set up download
+            downloadBtn.onclick = () => {
+                window.open(`/download/${generationId}`, '_blank');
+            };
+        }
+
+        function playVideo() {
+            const videoElement = document.getElementById('generatedVideo');
+            const playBtn = document.getElementById('playBtn');
+            
+            if (videoElement.paused) {
+                videoElement.play();
+                playBtn.innerHTML = '⏸️ Pause Video';
+            } else {
+                videoElement.pause();
+                playBtn.innerHTML = '▶️ Play Video';
+            }
+        }
+
+        function shareVideo() {
+            if (!currentGenerationId) {
+                alert('No video to share');
+                return;
+            }
+            
+            const videoUrl = `${window.location.origin}/video/${currentGenerationId}`;
+            
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(videoUrl).then(() => {
+                    alert('📋 Video link copied to clipboard!');
+                }).catch(() => {
+                    promptForCopy(videoUrl);
+                });
+            } else {
+                promptForCopy(videoUrl);
+            }
+        }
+
+        function promptForCopy(text) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                alert('📋 Video link copied to clipboard!');
+            } catch (err) {
+                alert(`Copy this link: ${text}`);
+            }
+            document.body.removeChild(textArea);
+        }
+
+        // Update video controls when video state changes
+        document.addEventListener('DOMContentLoaded', function() {
+            const videoElement = document.getElementById('generatedVideo');
+            const playBtn = document.getElementById('playBtn');
+            
+            videoElement.addEventListener('play', () => {
+                playBtn.innerHTML = '⏸️ Pause Video';
+            });
+            
+            videoElement.addEventListener('pause', () => {
+                playBtn.innerHTML = '▶️ Play Video';
+            });
+            
+            videoElement.addEventListener('ended', () => {
+                playBtn.innerHTML = '🔄 Replay Video';
+            });
+        });
+
+        function showError(message) {
+            const progressContainer = document.getElementById('progressContainer');
+            const errorContainer = document.getElementById('errorContainer');
+            const errorMessage = document.getElementById('errorMessage');
+            const debugBtn = document.getElementById('debugBtn');
+            
+            progressContainer.style.display = 'none';
+            errorContainer.style.display = 'block';
+            errorMessage.textContent = message;
+            
+            // Show debug button if we have a generation ID
+            if (currentGenerationId) {
+                debugBtn.style.display = 'inline-block';
+            }
+        }
+
+        function debugGeneration() {
+            if (!currentGenerationId) {
+                alert('No generation ID available for debugging');
+                return;
+            }
+            
+            fetch(`/debug/${currentGenerationId}`)
+            .then(response => response.json())
+            .then(data => {
+                console.log('Debug info:', data);
+                
+                let debugInfo = `
+=== VIDEO GENERATION DEBUG INFO ===
+
+Generation Status: ${data.generation_status?.status || 'Unknown'}
+Progress: ${data.generation_status?.progress || 0}%
+Message: ${data.generation_status?.message || 'No message'}
+Error: ${data.generation_status?.error || 'No error'}
+
+Working Directory: ${data.working_directory}
+Outputs Directory: ${data.outputs_directory}
+Outputs Exists: ${data.outputs_exists}
+
+Recent MP4 Files (last 30 min):
+${data.recent_mp4_files?.map(f => `- ${f.path} (${f.size} bytes, ${f.modified})`).join('\n') || 'None found'}
+
+All MP4 Files:
+${data.all_mp4_files?.join('\n') || 'None found'}
+                `;
+                
+                // Show in a modal or new window
+                const newWindow = window.open('', '_blank', 'width=800,height=600');
+                newWindow.document.write(`
+                    <html>
+                        <head><title>Debug Info</title></head>
+                        <body style="font-family: monospace; padding: 20px; background: #1a1a2e; color: #e0e0e0;">
+                            <h2 style="color: #da70d6;">🔍 Video Generation Debug Info</h2>
+                            <pre style="background: #000; padding: 15px; border-radius: 5px; overflow: auto;">${debugInfo}</pre>
+                            <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; background: #8a2be2; color: white; border: none; border-radius: 5px; cursor: pointer;">Close</button>
+                        </body>
+                    </html>
+                `);
+            })
+            .catch(error => {
+                alert(`Debug info failed: ${error.message}`);
+            });
+        }
+
+        function resetGenerateButton() {
+            const generateBtn = document.getElementById('generateBtn');
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = `
+                🚀 Generate Video
+                <span class="credit-cost" id="creditCost">Cost: ${getCreditCost(document.getElementById('duration').value)} credits</span>
+            `;
+            updateCreditCost(); // Re-check credit requirements
+        }
+
+        // Initialize the application
+        window.addEventListener('DOMContentLoaded', function() {
+            updateCreditsDisplay();
+            updateCreditCost();
+        });
+    </script>
+</body>
+</html>
