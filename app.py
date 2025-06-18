@@ -83,6 +83,8 @@ def generate_video():
 def generate_video_background(generation_id, story_topic, audience, duration, language):
     """Background task to generate video"""
     try:
+        from groq_script_generator import generate_story_script
+        from updated_main_groq import main as generate_video_main
         # Update status
         video_generation_status[generation_id].update({
             'status': 'generating_script',
