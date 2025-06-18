@@ -1,2 +1,32 @@
-__pycache__
-venv
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore virtual environment directories
+venv/
+.venv/
+env/
+.env/
+
+# Ignore generated story reel directories
+story_reel_*/
+
+# Ignore final video files in the root directory
+*_final_no_audio.mp4
+*_final_with_audio.mp4
+
+# Ignore generated scripts directory
+generated_scripts/
+
+# If you have a specific scripts directory for custom scripts from user input
+scripts/ 
+#script experiments
+groq_outputs/
+# (Note: if 'scripts/' contains scripts you *do* want to commit, 
+#  be more specific, e.g., scripts/story_script_*.json if those are temporary)
+
+# Ignore other potential temporary files or logs
+*.log
+*.tmp
+*.swp

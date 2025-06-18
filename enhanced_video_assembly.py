@@ -2,6 +2,8 @@
 Enhanced functions for video assembly with better audio synchronization.
 """
 
+# --- BEGIN FFMPEG PATH MODIFICATION ---
+# --- END FFMPEG PATH MODIFICATION ---
 import os
 import shutil
 from pydub import AudioSegment
@@ -157,98 +159,139 @@ def create_final_video(frames_dir, video_no_audio_path, final_video_path, audio_
     """Create video from frames using FFMPEG and add audio"""
     try:
         # Check if ffmpeg is installed and accessible
-        ffmpeg_check = os.system("which ffmpeg > /dev/null 2>&1")
-        
-        if ffmpeg_check != 0:
-            # For macOS or Windows, try to check with another method
-            ffmpeg_check = os.system("ffmpeg -version > /dev/null 2>&1")
-            if ffmpeg_check != 0:
-                print("FFMPEG not found. Please install ffmpeg:")
-                print("For macOS: brew install ffmpeg")
-                print("For Linux: apt-get install ffmpeg")
-                print("For Windows: Download from https://ffmpeg.org/download.html")
-                print("Then run the script again.")
-                return False
+        ffmpeg_executable = shutil.which("ffmpeg")
+
+        if ffmpeg_executable is None:
+            print("FFMPEG not found. Please ensure FFMPEG is installed and in your system's PATH.")
+            print("Installation instructions:")
+            print("  - macOS: brew install ffmpeg")
+            print("  - Linux: sudo apt-get install ffmpeg (or use your distro's package manager)")
+            print("  - Windows: Download from https://ffmpeg.org/download.html and add the 'bin' directory to your PATH.")
+            print("\nAfter installation, you might need to restart your terminal or system for the PATH changes to take effect.")
+            return False
         else:
-            print("FFMPEG is installed. Proceeding with video creation.")
-        
+            print(f"FFMPEG found at: {ffmpeg_executable}. Proceeding with video creation.")
+
         # Create 30fps video - using absolute paths
         abs_frames_dir = os.path.abspath(frames_dir)
         abs_final_video_no_audio = os.path.abspath(video_no_audio_path)
-        
-        print(f"Creating video from frames in {abs_frames_dir}")
-        
-        # First create video without audio - specify frame rate for consistent timing
-        cmd = f"ffmpeg -y -framerate 30 -pattern_type glob -i '{abs_frames_dir}/frame_*.png' -c:v libx264 -pix_fmt yuv420p -profile:v main -crf 20 -preset medium {abs_final_video_no_audio}"
-        print(f"Running FFMPEG command: {cmd}")
-        os.system(cmd)
 
-        if os.path.exists(abs_final_video_no_audio):
+        print(f"Creating video from frames in {abs_frames_dir}")
+
+        # First create video without audio - specify frame rate for consistent timing
+        # Using subprocess.run for better error handling.
+        # The glob pattern 'frame_*.png' might require shell=True for some systems/ffmpeg versions if not expanded by ffmpeg itself.
+        cmd_str_no_audio = f'"{ffmpeg_executable}" -y -framerate 30 -pattern_type glob -i "{abs_frames_dir}/frame_*.png" -c:v libx264 -pix_fmt yuv420p -profile:v main -crf 20 -preset medium "{abs_final_video_no_audio}"'
+        print(f"Running FFMPEG command: {cmd_str_no_audio}")
+        
+        import subprocess # Make sure to import subprocess at the top of your file
+        process_result = subprocess.run(cmd_str_no_audio, shell=True, capture_output=True, text=True, check=False)
+
+        video_created_successfully = False
+        if process_result.returncode == 0 and os.path.exists(abs_final_video_no_audio):
             print(f"Successfully created video without audio: {abs_final_video_no_audio}")
+            video_created_successfully = True
+        else:
+            print(f"FFMPEG command with glob pattern failed to create video file at {abs_final_video_no_audio}")
+            print(f"FFMPEG stdout: {process_result.stdout}")
+            print(f"FFMPEG stderr: {process_result.stderr}")
             
+            # Try an alternative approach using numbered frames (frame_%06d.png)
+            # This pattern is generally safer with subprocess if not using shell=True
+            cmd_list_no_audio_alt = [
+                ffmpeg_executable,
+                '-y',
+                '-framerate', '30',
+                '-i', f'{abs_frames_dir}/frame_%06d.png',
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-profile:v', 'main',
+                '-crf', '20',
+                '-preset', 'medium',
+                abs_final_video_no_audio
+            ]
+            print(f"Trying alternative FFMPEG command: {' '.join(cmd_list_no_audio_alt)}")
+            process_result_alt = subprocess.run(cmd_list_no_audio_alt, capture_output=True, text=True, check=False)
+            
+            if process_result_alt.returncode == 0 and os.path.exists(abs_final_video_no_audio):
+                print(f"Successfully created video with alternative command: {abs_final_video_no_audio}")
+                video_created_successfully = True
+            else:
+                print(f"Alternative FFMPEG command also failed.")
+                print(f"FFMPEG stdout (alt): {process_result_alt.stdout}")
+                print(f"FFMPEG stderr (alt): {process_result_alt.stderr}")
+                return False
+
+        if video_created_successfully:
             # If we have audio, add it to the video
             if audio_path and os.path.exists(audio_path):
                 abs_final_audio = os.path.abspath(audio_path)
                 abs_final_video = os.path.abspath(final_video_path)
-                
+
                 # Add audio to video - ensure audio synchronization
-                cmd_audio = f"ffmpeg -y -i {abs_final_video_no_audio} -i {abs_final_audio} -c:v copy -c:a aac -b:a 192k -shortest -map 0:v:0 -map 1:a:0 {abs_final_video}"
-                print(f"Adding audio with command: {cmd_audio}")
-                os.system(cmd_audio)
-                
-                if os.path.exists(abs_final_video):
+                cmd_list_audio = [
+                    ffmpeg_executable,
+                    '-y',
+                    '-i', abs_final_video_no_audio,
+                    '-i', abs_final_audio,
+                    '-c:v', 'copy',
+                    '-c:a', 'aac',
+                    '-b:a', '192k',
+                    '-shortest',
+                    '-map', '0:v:0', # Selects video stream from first input
+                    '-map', '1:a:0', # Selects audio stream from second input
+                    abs_final_video
+                ]
+                print(f"Adding audio with command: {' '.join(cmd_list_audio)}")
+                audio_process_result = subprocess.run(cmd_list_audio, capture_output=True, text=True, check=False)
+
+                if audio_process_result.returncode == 0 and os.path.exists(abs_final_video):
                     print(f"Successfully created final video with audio: {abs_final_video}")
                     return True
                 else:
                     print(f"Failed to create video with audio at {abs_final_video}")
-                    
+                    print(f"FFMPEG stdout (audio): {audio_process_result.stdout}")
+                    print(f"FFMPEG stderr (audio): {audio_process_result.stderr}")
                     # Try alternative approach with different audio encoding
                     print("Trying alternative audio encoding...")
-                    cmd_audio_alt = f"ffmpeg -y -i {abs_final_video_no_audio} -i {abs_final_audio} -c:v copy -c:a aac -strict experimental -shortest {abs_final_video}"
-                    os.system(cmd_audio_alt)
-                    
-                    if os.path.exists(abs_final_video):
-                        print(f"Successfully created video with alternative approach")
+                    cmd_list_audio_alt = [
+                        ffmpeg_executable,
+                        '-y',
+                        '-i', abs_final_video_no_audio,
+                        '-i', abs_final_audio,
+                        '-c:v', 'copy',
+                        '-c:a', 'aac',
+                        '-strict', 'experimental', # Common workaround for some AAC issues
+                        '-shortest',
+                        abs_final_video
+                    ]
+                    print(f"Adding audio with alternative command: {' '.join(cmd_list_audio_alt)}")
+                    audio_process_result_alt = subprocess.run(cmd_list_audio_alt, capture_output=True, text=True, check=False)
+                    if audio_process_result_alt.returncode == 0 and os.path.exists(abs_final_video):
+                        print(f"Successfully created video with alternative audio approach: {abs_final_video}")
                         return True
-                    return False
+                    else:
+                        print(f"Alternative audio encoding also failed.")
+                        print(f"FFMPEG stdout (audio alt): {audio_process_result_alt.stdout}")
+                        print(f"FFMPEG stderr (audio alt): {audio_process_result_alt.stderr}")
+                        return False
             else:
                 print("No audio track found or not created successfully.")
                 # Copy no-audio version to final name
                 shutil.copy(abs_final_video_no_audio, final_video_path)
                 print(f"Copied no-audio version to {final_video_path}")
                 return True
-        else:
-            print(f"FFMPEG command failed to create video file at {abs_final_video_no_audio}")
-            # Try an alternative approach using numbered frames
-            cmd2 = f"ffmpeg -y -framerate 30 -i {abs_frames_dir}/frame_%06d.png -c:v libx264 -pix_fmt yuv420p -profile:v main -crf 20 -preset medium {abs_final_video_no_audio}"
-            print(f"Trying alternative FFMPEG command: {cmd2}")
-            os.system(cmd2)
-            
-            if os.path.exists(abs_final_video_no_audio):
-                print(f"Successfully created video with alternative command")
-                # If we have audio, add it to the video
-                if audio_path and os.path.exists(audio_path):
-                    abs_final_audio = os.path.abspath(audio_path)
-                    abs_final_video = os.path.abspath(final_video_path)
-                    
-                    # Add audio to video
-                    cmd_audio = f"ffmpeg -y -i {abs_final_video_no_audio} -i {abs_final_audio} -c:v copy -c:a aac -b:a 192k -shortest {abs_final_video}"
-                    print(f"Adding audio with command: {cmd_audio}")
-                    os.system(cmd_audio)
-                    return os.path.exists(abs_final_video)
-                else:
-                    # Copy no-audio version to final name
-                    shutil.copy(abs_final_video_no_audio, final_video_path)
-                    return True
-            else:
-                return False
 
     except Exception as e:
         print(f"Error creating final video: {e}")
         print("\nTo manually create the video from the frames, run the following command:")
-        print(f"ffmpeg -framerate 30 -i {frames_dir}/frame_%06d.png -c:v libx264 -pix_fmt yuv420p {video_no_audio_path}")
+        # Ensure paths in manual commands are quoted for robustness
+        quoted_frames_input = f'"{os.path.abspath(frames_dir)}/frame_%06d.png"'
+        quoted_video_no_audio = f'"{os.path.abspath(video_no_audio_path)}"'
+        print(f'ffmpeg -framerate 30 -i {quoted_frames_input} -c:v libx264 -pix_fmt yuv420p {quoted_video_no_audio}')
         if audio_path:
+            quoted_audio_path = f'"{os.path.abspath(audio_path)}"'
+            quoted_final_video = f'"{os.path.abspath(final_video_path)}"'
             print(f"Then add audio with:")
-            print(f"ffmpeg -i {video_no_audio_path} -i {audio_path} -c:v copy -c:a aac -shortest {final_video_path}")
+            print(f'ffmpeg -i {quoted_video_no_audio} -i {quoted_audio_path} -c:v copy -c:a aac -shortest {quoted_final_video}')
         return False
-        

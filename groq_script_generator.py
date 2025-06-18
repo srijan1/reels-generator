@@ -224,7 +224,7 @@ def generate_story_script(story_topic, audience="general", duration_minutes=1, n
     # Calculate segment duration based on total video length
     segment_seconds = (duration_minutes * 60) / num_segments
     
-    # Determine if this is a simple topic or complex creative brief
+    # Determine if this is a simple topic or a complex creative brief (potential product/brand)
     is_complex_brief = detect_complex_brief(story_topic)
     
     try:
