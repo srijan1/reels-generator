@@ -276,4 +276,3 @@ def create_caption_styles():
             "animation": "none"
         }
     }
-    
