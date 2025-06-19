@@ -145,7 +145,13 @@ def generate_custom_video(): # Added resume logic
 
             if story_script_for_main:
                 num_segments_in_script = len(story_script_for_main.get("segments", []))
-                all_images_exist = num_segments_in_script > 0 and all(os.path.exists(os.path.join(resume_dir_path, "2_images", f"segment_{i+1}.png")) for i in range(num_segments_in_script))
+                # Check if all images exist and are non-empty
+                all_images_exist = False
+                if num_segments_in_script > 0:
+                    images_dir_for_check = os.path.join(resume_dir_path, "2_images")
+                    if os.path.isdir(images_dir_for_check):
+                        all_images_exist = all(os.path.exists(os.path.join(images_dir_for_check, f"segment_{i+1}.png")) and \
+                                               os.path.getsize(os.path.join(images_dir_for_check, f"segment_{i+1}.png")) > 0 for i in range(num_segments_in_script))
                 resume_state['images_generated'] = all_images_exist
                 resume_state['filters_applied'] = all_images_exist # Assume filters applied if all images exist
                 
@@ -187,7 +193,7 @@ def generate_custom_video(): # Added resume logic
         story_script_for_main = generate_story_script(
             story_topic=story_topic,
             audience=audience,
-            duration_minutes=duration_minutes,
+            duration_minutes=int(duration_minutes),
             num_segments=num_segments
         )
         

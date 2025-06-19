@@ -149,7 +149,7 @@ def create_fallback_image(width, height, message):
 def determine_image_strategy(segments):
     try:
         total_segments = len(segments)
-        pexels_count = 0
+        pexels_count = total_segments // 2
         ai_count = total_segments - pexels_count
         print(f"📊 Image Generation Strategy:")
         print(f"   📸 Pexels stock photos: {pexels_count} images")
@@ -166,7 +166,13 @@ def determine_image_strategy(segments):
         log_exception(e, "Error determining image strategy")
         raise
 
-def generate_segment_images_mixed(segments, base_dir, height=512, width=288, device="cpu"):
+def generate_segment_images_mixed(segments, base_dir, height=512, width=288, device="cpu", only_indices=None):
+    """
+    segments: list of all segments
+    only_indices: list of indices to generate (if None, generate all)
+    """
+    if only_indices is None:
+        only_indices = range(len(segments))
     try:
         print("🎨 Starting mixed image generation (Pexels + AI)...")
         pexels_available = False
@@ -188,7 +194,8 @@ def generate_segment_images_mixed(segments, base_dir, height=512, width=288, dev
                 print(f"⚠️  Could not setup Stable Diffusion: {e}")
                 print("Will try to use more Pexels images instead")
         segment_images = []
-        for i, segment in enumerate(segments):
+        for i in only_indices:
+            segment = segments[i]
             try:
                 print(f"\n📸 Generating image for segment {i+1}/{len(segments)}")
                 image_path = f"{base_dir}/2_images/segment_{i+1}.png"

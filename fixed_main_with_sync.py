@@ -295,51 +295,104 @@ def main(custom_script=None, resume_base_dir=None, resume_state=None):
     HEIGHT = 512
     WIDTH = 288
     device = "cpu" # Determine device - CPU for compatibility
+    
+    # This list will hold the final paths for all segments.
+    # It will be populated by existing images first, then by newly generated ones.
+    final_segment_image_paths = [None] * len(travel_story_script["segments"])
+    indices_needing_generation = list(range(len(travel_story_script["segments"])))
 
-    if not resume_state.get('images_generated'):
-        print("\nStep 4: Generating images using mixed approach (Pexels + Stable Diffusion)...")
+    if resume_base_dir:
+        print("\nStep 4: Checking for existing images (Resume Mode)...")
+        images_base_path = os.path.join(base_dir, "2_images")
+        
+        temp_indices_needing_generation = []
+        all_found_on_resume = True
+        for i_resume_check in range(len(travel_story_script["segments"])):
+            expected_image_path = os.path.join(images_base_path, f"segment_{i_resume_check+1}.png")
+            if os.path.exists(expected_image_path) and os.path.getsize(expected_image_path) > 0:
+                final_segment_image_paths[i_resume_check] = expected_image_path
+                print(f"  Image for segment {i_resume_check+1} found: {expected_image_path}")
+            else:
+                temp_indices_needing_generation.append(i_resume_check)
+                all_found_on_resume = False
+                print(f"  Image for segment {i_resume_check+1} MISSING.")
+        
+        if all_found_on_resume:
+            print("All images previously generated. Skipping image generation step.")
+            resume_state['images_generated'] = True
+        else:
+            indices_needing_generation = temp_indices_needing_generation
+            print(f"Will generate images for {len(indices_needing_generation)} missing segments: {[(x+1) for x in indices_needing_generation]}")
+            resume_state['images_generated'] = False # Mark that some generation is needed
+    else: # New run
+        print("\nStep 4: Preparing for new image generation (New Run)...")
+        resume_state['images_generated'] = False
+
+    if not resume_state.get('images_generated'): # If not all images were present on resume, or it's a new run
+        print(f"\nStep 4 (Execution): Generating images for segments: {[(idx+1) for idx in indices_needing_generation]}...")
         print(f"Using device: {device}")
         pexels_available = test_pexels_api()
         if pexels_available:
             print("✅ Pexels API is working - will use stock photos where possible")
         else:
             print("⚠️  Pexels API unavailable - will use AI generation for all images")
+        
         try:
-            segment_images = generate_segment_images_mixed(
+            # This function will generate images for 'indices_needing_generation'
+            # and save them to their respective paths like "base_dir/2_images/segment_{index+1}.png"
+            # It also handles fallbacks to placeholders if individual generations fail.
+            _ = generate_segment_images_mixed( 
                 travel_story_script["segments"],
                 base_dir,
                 height=HEIGHT,
                 width=WIDTH,
-                device=device
+                device=device,
+                only_indices=indices_needing_generation # CRITICAL: pass only missing indices
             )
-            print(f"✅ Successfully generated {len(segment_images)} images")
+
+            # After generation, verify all images again and populate final_segment_image_paths
+            all_images_now_definitively_present = True
+            images_base_path_after_gen = os.path.join(base_dir, "2_images")
+            for i_verify in range(len(travel_story_script["segments"])):
+                current_path = os.path.join(images_base_path_after_gen, f"segment_{i_verify+1}.png")
+                if os.path.exists(current_path) and os.path.getsize(current_path) > 0:
+                    final_segment_image_paths[i_verify] = current_path
+                else:
+                    print(f"⚠️ Image for segment {i_verify+1} still missing after generation attempt. Creating placeholder.")
+                    colors = [(255, 200, 200), (200, 255, 200), (200, 200, 255), (255, 255, 200), 
+                              (255, 200, 255), (200, 255, 255), (255, 230, 200), (230, 255, 200)]
+                    color = colors[i_verify % len(colors)]
+                    ph_image = Image.new('RGB', (WIDTH, HEIGHT), color=color)
+                    ph_path = os.path.join(images_base_path_after_gen, f"segment_{i_verify+1}.png")
+                    ph_image.save(ph_path)
+                    final_segment_image_paths[i_verify] = ph_path
+                    all_images_now_definitively_present = False 
+            
+            if all_images_now_definitively_present and all(p is not None for p in final_segment_image_paths):
+                print(f"✅ Successfully generated/verified all {len(final_segment_image_paths)} images.")
+            else:
+                print(f"⚠️  Some images might be placeholders. Total images accounted for: {len([p for p in final_segment_image_paths if p])}.")
+            resume_state['images_generated'] = True # Mark step as "processed"
+
         except Exception as e:
-            print(f"\nError with mixed image generation: {e}, falling back to placeholders.")
-            segment_images = [] # Ensure segment_images is initialized
+            print(f"\nGlobal error during mixed image generation: {e}. Falling back to placeholders for ALL segments.")
             placeholder_dir = f"{base_dir}/2_images"
             os.makedirs(placeholder_dir, exist_ok=True)
-            for i_ph, seg_ph in enumerate(travel_story_script["segments"]):
-                colors = [(255, 200, 200), (200, 255, 200), (200, 200, 255), (255, 255, 200), 
-                          (255, 200, 255), (200, 255, 255), (255, 230, 200), (230, 255, 200)]
-                color = colors[i_ph % len(colors)]
-                ph_image = Image.new('RGB', (WIDTH, HEIGHT), color=color)
-                # Add text to placeholder if needed
-                ph_path = f"{placeholder_dir}/segment_{i_ph+1}.png"
-                ph_image.save(ph_path)
-                segment_images.append(ph_path)
-        resume_state['images_generated'] = True
-    else:
-        print("\nStep 4: Images previously generated. Loading paths...")
-        for i_img in range(len(travel_story_script["segments"])):
-            img_p = os.path.join(base_dir, "2_images", f"segment_{i_img+1}.png")
-            if os.path.exists(img_p):
-                segment_images.append(img_p)
-            else:
-                print(f"Error: Resuming, but image {img_p} is missing. Re-run image generation step.")
-                return
-        if len(segment_images) != len(travel_story_script["segments"]):
-            print("Error: Mismatch in expected images and found images during resume. Aborting.")
-            return
+            for i_ph_global in range(len(travel_story_script["segments"])):
+                if final_segment_image_paths[i_ph_global] is None or not os.path.exists(final_segment_image_paths[i_ph_global]):
+                    colors = [(255, 200, 200), (200, 255, 200), (200, 200, 255), (255, 255, 200), 
+                              (255, 200, 255), (200, 255, 255), (255, 230, 200), (230, 255, 200)]
+                    color = colors[i_ph_global % len(colors)]
+                    ph_image = Image.new('RGB', (WIDTH, HEIGHT), color=color)
+                    ph_path = os.path.join(placeholder_dir, f"segment_{i_ph_global+1}.png")
+                    ph_image.save(ph_path)
+                    final_segment_image_paths[i_ph_global] = ph_path
+            resume_state['images_generated'] = True # Mark step as "processed" with fallbacks
+
+    segment_images = final_segment_image_paths # Use the populated list for subsequent steps
+    if any(p is None for p in segment_images):
+        print("Error: Not all segment images have a valid path after generation/resume. Aborting.")
+        return # Or raise an exception
 
     # --- Step 5: Filters ---
     if not resume_state.get('filters_applied', False): # Add 'filters_applied' to resume_state checks
