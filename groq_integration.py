@@ -14,8 +14,8 @@ import hashlib
 import time
 
 # API Configuration
-GROQ_API_KEY = "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"
-SPEECHIFY_API_KEY = "aT35muhXVhtj6HwtuWmCygONdKFWMKoA-CR4hYvaPso="
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+SPEECHIFY_API_KEY = os.environ.get("SPEECHIFY_API_KEY")
 
 # Voice IDs for Speechify - these are examples, actual voice IDs need to be fetched from their API
 SPEECHIFY_VOICES = {

@@ -9,7 +9,7 @@ import time
 import random
 
 # API Key for Groq API
-GROQ_API_KEY = "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"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 def generate_story_script(story_topic, audience="general", duration_minutes=1, num_segments=8):
     """

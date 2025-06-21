@@ -8,9 +8,11 @@ import os
 from PIL import Image
 import io
 import random
+from dotenv import load_dotenv
+load_dotenv()
 
 # Pexels API configuration
-PEXELS_API_KEY = "MiAVhSDsukGp9HVcWRLQpxm6kjh2gWZo1MnzDtOexze5OmYYlTpq0VnI"
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 PEXELS_BASE_URL = "https://api.pexels.com/v1/search"
 
 def extract_keywords_from_prompt(image_prompt):

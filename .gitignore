@@ -28,5 +28,7 @@ groq_outputs/
 
 # Ignore other potential temporary files or logs
 *.log
+.env
+*.env
 *.tmp
 *.swp

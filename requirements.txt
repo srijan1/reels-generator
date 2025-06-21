@@ -20,3 +20,4 @@ langdetect
 soundfile
 datasets
 accelerate
+python-dotenv

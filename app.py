@@ -4,6 +4,8 @@ import time
 import threading
 import json
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+load_dotenv()
 import uuid
 
 # Import your existing modules

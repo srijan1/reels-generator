@@ -27,7 +27,7 @@ def log_exception(e, context=""):
 # Login to Hugging Face
 def login_to_huggingface():
     try:
-        login(token="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")
+        login(token=os.environ.get("HUGGINGFACE_TOKEN"))
     except Exception as e:
         log_exception(e, "Error during Hugging Face login")
         print("❌ Error during Hugging Face login. See log for details.")

@@ -14,7 +14,7 @@ import datetime
 from groq import Groq
 
 # API Key for Groq API
-GROQ_API_KEY = "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"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 # Initialize Groq client
 GROQ_CLIENT = Groq(api_key=GROQ_API_KEY)
 
@@ -100,7 +100,7 @@ def generate_brand_brief(product_name_or_complex_topic, duration_minutes, num_se
             max_tokens=2048
         )
         brief_content = response.choices[0].message.content
-        write_output_to_file(brief_content, label=f"llm1_simple_brief_{language}")
+        # write_output_to_file(brief_content, label=f"llm1_simple_brief_{language}")
         print(f"LLM1 (Research Agent): {language.upper()} simple brief generated.")
         return brief_content
     except Exception as e:
@@ -192,7 +192,7 @@ def create_script_treatment(brief, segment_seconds, num_segments, language='engl
             max_tokens=3500           # Increased to accommodate detailed JSON for 8 segments
         )
         script_content = response.choices[0].message.content
-        write_output_to_file(script_content, label=f"llm2_simple_script_{language}")
+        # write_output_to_file(script_content, label=f"llm2_simple_script_{language}")
         print(f"LLM2 (Creative Agent): {language.upper()} simple script generated.")
         return script_content
     except Exception as e:

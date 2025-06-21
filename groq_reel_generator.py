@@ -12,6 +12,10 @@ import time
 import glob
 from pathlib import Path
 
+# --- BEGIN DOTENV LOADING ---
+from dotenv import load_dotenv
+load_dotenv()
+
 # --- BEGIN FFMPEG PATH MODIFICATION ---
 from ffmpeg_config import ensure_ffmpeg_in_path
 ensure_ffmpeg_in_path()
