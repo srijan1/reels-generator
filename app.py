@@ -1,526 +1,1391 @@
-from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for, Response
+'''
+from flask import Flask, render_template, request, jsonify, send_file, url_for
 import os
-import time
+import sys
 import threading
+import time
 import json
-from werkzeug.utils import secure_filename
-from dotenv import load_dotenv
-load_dotenv()
-import uuid
+import shutil
+from datetime import datetime, timedelta
+from pathlib import Path
+import subprocess
 
-# Import your existing modules
-try:
-    from groq_script_generator import generate_story_script, get_user_story_prompt
-    from updated_main_groq import main as generate_video_main
-    from piper_tts_integration import clear_tts, convert_text_to_speech, get_audio_duration
-    import groq_reel_generator
-except ImportError as e:
-    print(f"Warning: Could not import modules: {e}")
-
+# Initialize Flask app
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this'  # Change this to a secure secret key
+app.secret_key = 'groq_reel_generator_secret_key_2024'
 
 # Configuration
-UPLOAD_FOLDER = 'uploads'
-OUTPUT_FOLDER = 'outputs'
-ALLOWED_EXTENSIONS = {'txt', 'json'}
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+UPLOAD_FOLDER = 'static/uploads'
+OUTPUT_FOLDER = 'static/outputs'
+AVATAR_PATH = 'avatar.mp4'
+CLEANUP_HOURS = 24
 
 # Create necessary directories
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+os.makedirs('static', exist_ok=True)
 
-# Global variables to track video generation status
-video_generation_status = {}
+# Import your existing modules with error handling
+MODULES_STATUS = {
+    'core': False,
+    'talking_avatar': False,
+    'musical_rhyme': False
+}
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+# Core modules (required)
+try:
+    from groq_script_generator import get_user_story_prompt, generate_story_script
+    from updated_main_groq import main as generate_video_main
+    from piper_tts_integration import convert_text_to_speech, get_audio_duration, verify_audio_file
+    MODULES_STATUS['core'] = True
+    print("✅ Core modules loaded successfully")
+except ImportError as e:
+    print(f"❌ Core module import failed: {e}")
+
+# Avatar modules (optional)
+try:
+    from talking_avatar_integration import EnhancedTalkingAvatarGenerator, generate_talking_avatar_video_reel
+    MODULES_STATUS['talking_avatar'] = True
+    print("🎭 Talking Avatar feature loaded!")
+except ImportError as e:
+    print(f"⚠️ Talking Avatar not available: {e}")
+
+# Musical rhyme module (optional)
+try:
+    from musical_rhyme_generator import (
+        initialize_musical_rhyme,
+        generate_musical_rhyme_content,
+        generate_rhyme_script_only,
+        generate_musical_audio_only
+    )
+    MODULES_STATUS['musical_rhyme'] = True
+    print("🎵 Musical Rhyme feature loaded!")
+except ImportError as e:
+    print(f"⚠️ Musical Rhyme not available: {e}")
+
+# Global status tracking
+video_generation_status = {
+    'is_generating': False,
+    'progress': 0,
+    'stage': '',
+    'current_video': None,
+    'error': None,
+    'start_time': None
+}
+
+def cleanup_old_files():
+    """Remove files older than 24 hours"""
+    try:
+        current_time = datetime.now()
+        cutoff_time = current_time - timedelta(hours=CLEANUP_HOURS)
+        
+        cleaned_count = 0
+        
+        for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER]:
+            for file_path in Path(folder).rglob('*'):
+                if file_path.is_file() and file_path.name != '.gitkeep':
+                    file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
+                    if file_time < cutoff_time:
+                        try:
+                            file_path.unlink()
+                            cleaned_count += 1
+                            print(f"🗑️ Cleaned up: {file_path.name}")
+                        except Exception as e:
+                            print(f"⚠️ Could not delete {file_path}: {e}")
+        
+        if cleaned_count > 0:
+            print(f"🧹 Cleanup complete: {cleaned_count} files removed")
+            
+    except Exception as e:
+        print(f"⚠️ Cleanup error: {e}")
+
+def update_status(is_generating=False, progress=0, stage='', current_video=None, error=None):
+    """Update generation status"""
+    global video_generation_status
+    
+    video_generation_status.update({
+        'is_generating': is_generating,
+        'progress': progress,
+        'stage': stage,
+        'current_video': current_video,
+        'error': error
+    })
+    
+    if is_generating and not video_generation_status.get('start_time'):
+        video_generation_status['start_time'] = datetime.now()
+    elif not is_generating:
+        video_generation_status['start_time'] = None
+
+def get_avatar_path():
+    """Get the avatar.mp4 path with fallback options"""
+    possible_paths = [
+        Path.cwd() / 'avatar.mp4',
+        Path(__file__).parent / 'avatar.mp4',
+        Path.cwd() / 'assets' / 'avatar.mp4',
+        Path.cwd() / 'videos' / 'avatar.mp4'
+    ]
+    
+    for path in possible_paths:
+        if path.exists():
+            print(f"📍 Found avatar at: {path}")
+            return str(path)
+    
+    print(f"⚠️ Avatar file not found")
+    return None
+
+def handle_video_result(result, video_type, timestamp):
+    """Handle video result and ensure it's accessible via web interface"""
+    if not result or not os.path.exists(result):
+        print(f"❌ Video file not found: {result}")
+        return None
+    
+    output_filename = f"{video_type}_{timestamp}.mp4"
+    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+    
+    try:
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        
+        # Convert video to web-compatible format
+        web_compatible_path = convert_to_web_format(result, output_path)
+        
+        if web_compatible_path and os.path.exists(web_compatible_path):
+            print(f"✅ Web-compatible video created: {web_compatible_path}")
+            
+            # Generate URL without Flask context (using relative path)
+            video_url = f"/static/outputs/{output_filename}"
+            print(f"🌐 Video URL: {video_url}")
+            
+            # Clean up original if it's in a temp location
+            if any(keyword in result.lower() for keyword in ['/tmp/', 'temp', '5_final', 'outputs', 'talking_avatar']):
+                try:
+                    # Clean up the entire temp directory for avatar generation
+                    if 'talking_avatar' in result:
+                        temp_dir = os.path.dirname(os.path.dirname(result))  # Go up two levels from final/
+                        if os.path.exists(temp_dir) and 'talking_avatar' in temp_dir:
+                            shutil.rmtree(temp_dir)
+                            print(f"🗑️ Cleaned up temp directory: {temp_dir}")
+                    else:
+                        os.remove(result)
+                        print(f"🗑️ Cleaned up original: {result}")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Cleanup failed: {cleanup_error}")
+            
+            return video_url
+        else:
+            print(f"❌ Failed to create web-compatible video")
+            return None
+        
+    except Exception as e:
+        print(f"❌ Error handling video result: {e}")
+        return None
+
+def convert_to_web_format(input_path, output_path):
+    """Convert video to web-compatible format using FFmpeg"""
+    try:
+        print(f"🔄 Converting video to web format...")
+        print(f"   Input: {input_path}")
+        print(f"   Output: {output_path}")
+        
+        # FFmpeg command for web-compatible video
+        cmd = [
+            'ffmpeg', '-y',  # Overwrite output file
+            '-i', input_path,
+            '-c:v', 'libx264',  # H.264 video codec
+            '-preset', 'medium',  # Encoding speed/quality balance
+            '-crf', '23',  # Quality setting (lower = better quality)
+            '-c:a', 'aac',  # AAC audio codec
+            '-b:a', '128k',  # Audio bitrate
+            '-movflags', '+faststart',  # Enable streaming
+            '-pix_fmt', 'yuv420p',  # Pixel format for compatibility
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',  # Ensure even dimensions
+            output_path
+        ]
+        
+        print(f"🔧 Running FFmpeg conversion...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            print(f"✅ Video conversion successful")
+            return output_path
+        else:
+            print(f"❌ FFmpeg conversion failed:")
+            print(f"   Error: {result.stderr}")
+            
+            # Fallback: just copy the file if conversion fails
+            print(f"🔄 Falling back to direct copy...")
+            shutil.copy2(input_path, output_path)
+            return output_path
+            
+    except subprocess.TimeoutExpired:
+        print(f"❌ Video conversion timed out")
+        # Fallback: just copy the file
+        shutil.copy2(input_path, output_path)
+        return output_path
+    except Exception as e:
+        print(f"❌ Video conversion error: {e}")
+        # Fallback: just copy the file
+        try:
+            shutil.copy2(input_path, output_path)
+            return output_path
+        except Exception as copy_error:
+            print(f"❌ Even file copy failed: {copy_error}")
+            return None
+
+def generate_avatar_for_web(topic, language='english', audience='adult', duration=1.0):
+    """Web-compatible wrapper for avatar generation"""
+    
+    print(f"🎭 WEB AVATAR GENERATION")
+    print(f"📝 Topic: {topic}")
+    print(f"🗣️ Language: {language}")
+    print(f"👥 Audience: {audience}")
+    print(f"⏱️ Duration: {duration} minutes")
+    
+    try:
+        avatar_path = get_avatar_path()
+        if not avatar_path:
+            print("❌ Avatar file (avatar.mp4) not found")
+            return None
+        
+        print(f"📹 Using avatar: {avatar_path}")
+        
+        # Create avatar generator with the avatar file
+        avatar_generator = EnhancedTalkingAvatarGenerator(avatar_path)
+        
+        # Generate the avatar video with web parameters
+        result = avatar_generator.generate_complete_talking_avatar(
+            script_topic=topic,
+            audience=audience,
+            quality="high"
+        )
+        
+        if result and os.path.exists(result):
+            print(f"✅ Avatar video generated: {result}")
+            return result
+        else:
+            print("❌ Avatar generation failed")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Avatar generation error: {e}")
+        return None
 
 @app.route('/')
 def index():
-    """Main page with the video generation interface"""
-    return render_template('index.html')
+    """Main page"""
+    cleanup_old_files()
+    avatar_available = get_avatar_path() is not None
+    
+    return render_template('index.html', 
+                         core_available=MODULES_STATUS['core'],
+                         talking_avatar_available=MODULES_STATUS['talking_avatar'],
+                         musical_rhyme_available=MODULES_STATUS['musical_rhyme'],
+                         avatar_available=avatar_available)
+
+@app.route('/status')
+def get_status():
+    """Get current generation status"""
+    status = video_generation_status.copy()
+    
+    if status.get('start_time'):
+        elapsed = (datetime.now() - status['start_time']).total_seconds()
+        status['elapsed_time'] = elapsed
+    
+    return jsonify(status)
 
 @app.route('/generate', methods=['POST'])
 def generate_video():
-    """Handle video generation request"""
+    """Generate video based on form data"""
+    if video_generation_status['is_generating']:
+        return jsonify({'error': 'Video generation already in progress'}), 400
+    
     try:
-        # Get form data
-        story_topic = request.form.get('story_topic', '').strip()
-        audience = request.form.get('audience', 'general')
-        duration = float(request.form.get('duration', 1.0))
-        language = request.form.get('language', 'en')
+        data = request.get_json()
         
-        if not story_topic:
-            return jsonify({'error': 'Story topic is required'}), 400
+        video_type = data.get('video_type')
+        language = data.get('language', 'english')
+        audience = data.get('audience', 'adult')
+        topic = data.get('topic', '').strip()
+        duration = float(data.get('duration', 1.0))
         
-        # Generate unique ID for this request
-        generation_id = str(uuid.uuid4())
+        # Validation
+        if not topic:
+            return jsonify({'error': 'Topic is required'}), 400
         
-        # Initialize status
-        video_generation_status[generation_id] = {
-            'status': 'starting',
-            'progress': 0,
-            'message': 'Initializing video generation...',
-            'video_path': None,
-            'error': None
-        }
+        if len(topic) < 5:
+            return jsonify({'error': 'Topic must be at least 5 characters long'}), 400
         
-        # Start video generation in background thread
+        if duration < 0.5 or duration > 10:
+            return jsonify({'error': 'Duration must be between 0.5 and 10 minutes'}), 400
+        
+        # Start generation in background thread
         thread = threading.Thread(
             target=generate_video_background,
-            args=(generation_id, story_topic, audience, duration, language)
+            args=(video_type, topic, language, audience, duration),
+            daemon=True
         )
-        thread.daemon = True
         thread.start()
         
-        return jsonify({'generation_id': generation_id, 'status': 'started'})
+        return jsonify({
+            'success': True, 
+            'message': 'Generation started',
+            'estimated_duration': f'{duration} minutes'
+        })
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Request processing error: {str(e)}'}), 500
 
-def generate_video_background(generation_id, story_topic, audience, duration, language):
-    """Background task to generate video"""
+def generate_video_background(video_type, topic, language, audience, duration):
+    """Background video generation with detailed progress tracking"""
     try:
-        from groq_script_generator import generate_story_script
-        from updated_main_groq import main as generate_video_main
-        # Update status
-        video_generation_status[generation_id].update({
-            'status': 'generating_script',
-            'progress': 10,
-            'message': 'Generating story script...'
-        })
-        
-        # Generate script using Groq API
-        print(f"Generating script for: {story_topic}")
-        script_data = generate_story_script(
-            story_topic=story_topic,
-            audience=audience,
-            duration_minutes=duration,
-            num_segments=8
-        )
-        
-        if not script_data or 'segments' not in script_data:
-            raise Exception("Failed to generate script")
-        
-        # Update status
-        video_generation_status[generation_id].update({
-            'status': 'generating_images',
-            'progress': 25,
-            'message': 'Creating AI-generated images...'
-        })
-        
-        # Small delay to show progress
-        import time
+        update_status(True, 0, 'Initializing generation system...', None, None)
         time.sleep(1)
         
-        # Update status
-        video_generation_status[generation_id].update({
-            'status': 'generating_audio',
-            'progress': 40,
-            'message': 'Generating crystal-clear audio narration...'
-        })
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        time.sleep(1)
+        # Enhance topic with language specification for better results
+        enhanced_topic = topic
+        if language == 'hindi':
+            if 'hindi' not in topic.lower() and 'हिंदी' not in topic:
+                enhanced_topic = f"{topic} in hindi"
+                print(f"🇮🇳 Enhanced topic for Hindi: {enhanced_topic}")
         
-        # Update status
-        video_generation_status[generation_id].update({
-            'status': 'creating_video',
-            'progress': 60,
-            'message': 'Assembling video with effects and transitions...'
-        })
-        
-        # Generate video using the main function
-        print(f"Starting video generation with script: {script_data.get('title', 'Custom Story')}")
-        result = generate_video_main(script_data)
-        
-        # Update status
-        video_generation_status[generation_id].update({
-            'status': 'finalizing',
-            'progress': 85,
-            'message': 'Finalizing video and audio synchronization...'
-        })
-        
-        # Look for the generated video in common locations
-        video_path = None
-        possible_paths = [
-            result,  # Direct result from main function
-            "narrative_story_final_with_audio.mp4",  # Common output name
-            "./narrative_story_final_with_audio.mp4",  # With relative path
-        ]
-        
-        # Also check for timestamped directories
-        import glob
-        timestamped_videos = glob.glob("./story_reel_*/5_final/*.mp4")
-        if timestamped_videos:
-            # Get the most recent one
-            timestamped_videos.sort(key=os.path.getmtime, reverse=True)
-            possible_paths.extend(timestamped_videos[:3])  # Add top 3 most recent
-        
-        # Add any recent MP4 files in current directory
-        current_time = time.time()
-        for file in glob.glob("*.mp4"):
-            file_time = os.path.getmtime(file)
-            # If file was created in the last 10 minutes
-            if current_time - file_time < 600:
-                possible_paths.append(file)
-        
-        print(f"Searching for video in paths: {possible_paths}")
-        
-        # Find the actual video file
-        for path in possible_paths:
-            if path and os.path.exists(str(path)):
-                video_path = str(path)
-                print(f"✅ Found video at: {video_path}")
-                break
-        
-        if video_path and os.path.exists(video_path):
-            # Copy to outputs directory for easier access
-            output_filename = f"video_{generation_id}.mp4"
-            output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        if video_type == 'reel':
+            update_status(True, 5, 'Preparing script generation...', None, None)
+            
+            if not MODULES_STATUS['core']:
+                update_status(False, 0, '', None, 'Core modules not available')
+                return
+            
+            update_status(True, 15, 'Generating creative script...', None, None)
+            
+            num_segments = max(3, int(duration * 2))
             
             try:
-                import shutil
-                shutil.copy2(video_path, output_path)
-                print(f"📁 Video copied to: {output_path}")
-                final_video_path = output_path
+                story_script = generate_story_script(
+                    story_topic=enhanced_topic,  # Use enhanced topic
+                    audience=audience,
+                    duration_minutes=duration,
+                    num_segments=num_segments
+                )
             except Exception as e:
-                print(f"⚠️ Failed to copy video: {e}, using original path")
-                final_video_path = video_path
+                update_status(False, 0, '', None, f'Script generation failed: {str(e)}')
+                return
             
-            # Update status - success
-            video_generation_status[generation_id].update({
-                'status': 'completed',
-                'progress': 100,
-                'message': 'Video generation completed successfully!',
-                'video_path': final_video_path
-            })
-            print(f"🎉 Video generation completed successfully: {final_video_path}")
+            if not story_script:
+                update_status(False, 0, '', None, 'Failed to generate script content')
+                return
+            
+            update_status(True, 40, 'Creating visual content...', None, None)
+            time.sleep(2)
+            
+            update_status(True, 70, 'Assembling final video...', None, None)
+            
+            try:
+                result = generate_video_main(story_script)
+            except Exception as e:
+                update_status(False, 0, '', None, f'Video generation failed: {str(e)}')
+                return
+            
+            video_url = handle_video_result(result, "reel", timestamp)
+            if video_url:
+                update_status(False, 100, 'Complete', video_url, None)
+            else:
+                update_status(False, 0, '', None, 'Failed to process video file')
+                
+        elif video_type == 'avatar' and MODULES_STATUS['talking_avatar']:
+            avatar_path = get_avatar_path()
+            if not avatar_path:
+                update_status(False, 0, '', None, 'Avatar file (avatar.mp4) not found')
+                return
+            
+            update_status(True, 10, 'Initializing avatar system...', None, None)
+            update_status(True, 30, 'Processing avatar animation...', None, None)
+            
+            try:
+                # Use the web-compatible avatar generation with enhanced topic
+                result = generate_avatar_for_web(
+                    topic=enhanced_topic,  # Use enhanced topic
+                    language=language,
+                    audience=audience,
+                    duration=duration
+                )
+                
+                video_url = handle_video_result(result, "avatar", timestamp)
+                if video_url:
+                    update_status(False, 100, 'Complete', video_url, None)
+                else:
+                    update_status(False, 0, '', None, 'Failed to process avatar video file')
+                    
+            except Exception as e:
+                print(f"❌ Avatar generation error: {e}")
+                update_status(False, 0, '', None, f'Avatar generation failed: {str(e)}')
+                
+        elif video_type == 'musical' and MODULES_STATUS['musical_rhyme']:
+            update_status(True, 10, 'Initializing musical system...', None, None)
+            update_status(True, 25, 'Generating musical content...', None, None)
+            
+            try:
+                # Generate a unique output directory
+                musical_output_dir = f"musical_rhyme_{enhanced_topic.replace(' ', '_')}_{timestamp}"
+                
+                result = generate_musical_rhyme_content(
+                    topic=enhanced_topic,  # Use enhanced topic
+                    language=language,
+                    audience=audience,
+                    output_dir=musical_output_dir
+                )
+            except Exception as e:
+                update_status(False, 0, '', None, f'Musical content generation failed: {str(e)}')
+                return
+            
+            if result:
+                update_status(True, 80, 'Processing musical video...', None, None)
+                
+                # Check if the musical rhyme generator already created a video
+                if result.get('final_video') and os.path.exists(result['final_video']):
+                    print(f"✅ Using pre-generated musical video: {result['final_video']}")
+                    video_result = result['final_video']
+                elif result.get('script'):
+                    # If no video but script exists, generate video
+                    update_status(True, 60, 'Creating musical video from script...', None, None)
+                    try:
+                        video_result = generate_video_main(result['script'])
+                    except Exception as e:
+                        update_status(False, 0, '', None, f'Musical video creation failed: {str(e)}')
+                        return
+                else:
+                    update_status(False, 0, '', None, 'No video or script generated by musical system')
+                    return
+                
+                video_url = handle_video_result(video_result, "musical", timestamp)
+                if video_url:
+                    update_status(False, 100, 'Complete', video_url, None)
+                else:
+                    update_status(False, 0, '', None, 'Failed to process musical video file')
+            else:
+                update_status(False, 0, '', None, 'Musical content generation failed')
+        
         else:
-            print(f"❌ Video not found in any of these locations: {possible_paths}")
-            # List all MP4 files for debugging
-            all_mp4s = glob.glob("**/*.mp4", recursive=True)
-            print(f"🔍 All MP4 files found: {all_mp4s}")
-            raise Exception(f"Video generation completed but output file not found. Searched: {len(possible_paths)} locations")
+            update_status(False, 0, '', None, f'Video type "{video_type}" not available')
             
     except Exception as e:
-        print(f"❌ Video generation error: {e}")
-        # Update status - error
-        video_generation_status[generation_id].update({
-            'status': 'error',
-            'progress': 0,
-            'message': f'Error: {str(e)}',
-            'error': str(e)
-        })
+        update_status(False, 0, '', None, f'Unexpected error: {str(e)}')
 
-@app.route('/status/<generation_id>')
-def check_status(generation_id):
-    """Check the status of video generation"""
-    if generation_id not in video_generation_status:
-        return jsonify({'error': 'Invalid generation ID'}), 404
-    
-    return jsonify(video_generation_status[generation_id])
+@app.route('/download/<filename>')
+def download_file(filename):
+    """Download generated video file with security checks"""
+    try:
+        file_path = Path(OUTPUT_FOLDER) / filename
+        
+        if not file_path.exists() or not str(file_path).startswith(str(Path(OUTPUT_FOLDER).resolve())):
+            return jsonify({'error': 'File not found or access denied'}), 404
+        
+        return send_file(file_path, as_attachment=True, download_name=filename)
+        
+    except Exception as e:
+        return jsonify({'error': f'Download error: {str(e)}'}), 500
 
-@app.route('/video/<generation_id>')
-def stream_video(generation_id):
-    """Stream video for preview with range support"""
-    if generation_id not in video_generation_status:
-        return jsonify({'error': 'Invalid generation ID'}), 404
-    
-    status = video_generation_status[generation_id]
-    
-    if status['status'] != 'completed' or not status['video_path']:
-        return jsonify({'error': 'Video not ready'}), 400
-    
-    video_path = status['video_path']
-    if not os.path.exists(video_path):
-        return jsonify({'error': 'Video file not found'}), 404
-    
-    # Get file size
-    file_size = os.path.getsize(video_path)
-    
-    # Handle range requests for video streaming
-    range_header = request.headers.get('Range', None)
-    if range_header:
-        # Parse range header
-        range_match = range_header.replace('bytes=', '').split('-')
-        start = int(range_match[0]) if range_match[0] else 0
-        end = int(range_match[1]) if range_match[1] else file_size - 1
+@app.route('/video/<filename>')
+def serve_video(filename):
+    """Serve video files with proper headers for web playback"""
+    try:
+        file_path = Path(OUTPUT_FOLDER) / filename
         
-        # Read the requested chunk
-        with open(video_path, 'rb') as f:
-            f.seek(start)
-            chunk_size = end - start + 1
-            data = f.read(chunk_size)
+        if not file_path.exists() or not str(file_path).startswith(str(Path(OUTPUT_FOLDER).resolve())):
+            return jsonify({'error': 'File not found or access denied'}), 404
         
-        response = Response(
-            data,
-            206,  # Partial Content
-            headers={
-                'Content-Range': f'bytes {start}-{end}/{file_size}',
-                'Accept-Ranges': 'bytes',
-                'Content-Length': str(chunk_size),
-                'Content-Type': 'video/mp4',
-            }
-        )
+        def generate():
+            with open(file_path, 'rb') as f:
+                data = f.read(1024)
+                while data:
+                    yield data
+                    data = f.read(1024)
+        
+        response = app.response_class(generate(), mimetype='video/mp4')
+        response.headers.add('Accept-Ranges', 'bytes')
+        response.headers.add('Content-Length', str(file_path.stat().st_size))
+        response.headers.add('Cache-Control', 'no-cache')
+        
         return response
-    else:
-        # Serve entire file
-        return send_file(
-            video_path,
-            mimetype='video/mp4',
-            as_attachment=False,
-            download_name=f'video_{generation_id}.mp4'
-        )
-
-@app.route('/download/<generation_id>')
-def download_video(generation_id):
-    """Download the generated video"""
-    if generation_id not in video_generation_status:
-        return jsonify({'error': 'Invalid generation ID'}), 404
-    
-    status = video_generation_status[generation_id]
-    
-    if status['status'] != 'completed' or not status['video_path']:
-        return jsonify({'error': 'Video not ready for download'}), 400
-    
-    if not os.path.exists(status['video_path']):
-        return jsonify({'error': 'Video file not found'}), 404
-    
-    return send_file(
-        status['video_path'],
-        as_attachment=True,
-        download_name=f'generated_video_{generation_id}.mp4'
-    )
+        
+    except Exception as e:
+        return jsonify({'error': f'Video serving error: {str(e)}'}), 500
 
 @app.route('/test-audio', methods=['POST'])
 def test_audio():
-    """Test audio generation"""
+    """Test audio quality"""
     try:
-        # Test English audio
-        english_test_text = "Hello, this is a test of the English audio system. The speech should be crystal clear."
-        english_output = "test_english_clarity.mp3"
+        data = request.get_json()
+        language = data.get('language', 'english')
         
-        print("🔊 Generating English test audio...")
-        result_en = convert_text_to_speech(
-            english_test_text, 
-            english_output, 
-            'female',
-            'en'
-        )
-        
-        # Test Hindi audio
-        hindi_test_text = "यह हिंदी ऑडियो की गुणवत्ता का परीक्षण है।"
-        hindi_output = "test_hindi_clarity.mp3"
-        
-        print("🔊 Generating Hindi test audio...")
-        result_hi = convert_text_to_speech(
-            hindi_test_text, 
-            hindi_output, 
-            'female',
-            'hi'
-        )
-        
-        result = {
-            'status': 'success',
-            'message': 'Audio test completed',
-            'english_audio': english_output if result_en and os.path.exists(english_output) else None,
-            'hindi_audio': hindi_output if result_hi and os.path.exists(hindi_output) else None
+        test_texts = {
+            'english': "Hello! This is a test of the English audio quality. The audio should be crystal clear.",
+            'hindi': "नमस्ते! यह हिंदी ऑडियो गुणवत्ता का परीक्षण है। आवाज़ बिल्कुल साफ होनी चाहिए।"
         }
         
-        return jsonify(result)
+        if language not in test_texts:
+            return jsonify({'error': 'Unsupported language for audio test'}), 400
         
+        if not MODULES_STATUS['core']:
+            return jsonify({'error': 'Audio system not available'}), 503
+        
+        text = test_texts[language]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"audio_test_{language}_{timestamp}.mp3"
+        output_path = Path(OUTPUT_FOLDER) / output_filename
+        
+        result = convert_text_to_speech(text, str(output_path))
+        
+        if result and os.path.exists(result):
+            duration = get_audio_duration(result)
+            is_valid, message = verify_audio_file(result)
+            
+            audio_url = url_for('static', filename=f'outputs/{output_filename}')
+            
+            return jsonify({
+                'success': True,
+                'audio_url': audio_url,
+                'duration': round(duration, 2) if duration else 0,
+                'quality_message': message,
+                'language': language
+            })
+        else:
+            return jsonify({'error': 'Audio generation failed'}), 500
+            
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Audio test error: {str(e)}'}), 500
 
 @app.route('/system-status')
 def system_status():
-    """Check system status and dependencies"""
+    """Get comprehensive system status information"""
     try:
-        # Import check function
-        from groq_reel_generator import check_system_status
-        
-        # This will print to console, but we'll return a JSON response
-        # You might want to modify check_system_status to return data instead of printing
-        
-        import sys
-        
-        # Basic dependency check
-        dependencies = [
-            ('pyttsx3', 'Text-to-Speech Engine'),
-            ('pydub', 'Audio Processing'),
-            ('torch', 'PyTorch for AI Models'),
-            ('transformers', 'Hugging Face Transformers'),
-            ('langdetect', 'Language Detection'),
-            ('groq', 'Groq API Client'),
-            ('requests', 'HTTP Requests'),
-            ('PIL', 'Image Processing'),
-            ('cv2', 'OpenCV for Video'),
-            ('numpy', 'Numerical Computing')
-        ]
-        
-        status_results = []
-        
-        for module_name, description in dependencies:
-            try:
-                __import__(module_name)
-                status_results.append({
-                    'module': module_name,
-                    'description': description,
-                    'status': 'OK'
-                })
-            except ImportError:
-                status_results.append({
-                    'module': module_name,
-                    'description': description,
-                    'status': 'MISSING'
-                })
-        
-        return jsonify({
-            'python_version': sys.version,
-            'dependencies': status_results
-        })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/audio-settings')
-def audio_settings():
-    """Get current audio settings"""
-    try:
-        from piper_tts_integration import clear_tts, PYTTSX3_AVAILABLE, TORCH_AVAILABLE
-        
-        settings = {
-            'voice_settings': clear_tts.clarity_settings if hasattr(clear_tts, 'clarity_settings') else {},
-            'model_configs': clear_tts.language_models if hasattr(clear_tts, 'language_models') else {},
-            'initialized_languages': list(clear_tts.supported_languages) if hasattr(clear_tts, 'supported_languages') else [],
-            'pyttsx3_available': PYTTSX3_AVAILABLE,
-            'torch_available': TORCH_AVAILABLE
+        status = {
+            'core_modules': MODULES_STATUS['core'],
+            'talking_avatar': MODULES_STATUS['talking_avatar'],
+            'musical_rhyme': MODULES_STATUS['musical_rhyme'],
+            'avatar_file': get_avatar_path() is not None,
+            'output_folder': os.path.exists(OUTPUT_FOLDER),
+            'upload_folder': os.path.exists(UPLOAD_FOLDER)
         }
         
-        return jsonify(settings)
+        return jsonify(status)
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Status check failed: {str(e)}'}), 500
 
-@app.route('/upload-script', methods=['POST'])
-def upload_script():
-    """Upload a custom script file"""
+@app.route('/cleanup', methods=['POST'])
+def manual_cleanup():
+    """Manual file cleanup endpoint"""
     try:
-        if 'script_file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
-        
-        file = request.files['script_file']
-        
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            timestamp = str(int(time.time()))
-            filename = f"{timestamp}_{filename}"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            
-            # Try to parse the script
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    if filename.endswith('.json'):
-                        script_data = json.load(f)
-                    else:
-                        # Assume it's a text file with story topic
-                        content = f.read()
-                        script_data = {'story_topic': content}
-                
-                return jsonify({
-                    'status': 'success',
-                    'filename': filename,
-                    'script_data': script_data
-                })
-                
-            except Exception as e:
-                return jsonify({'error': f'Failed to parse script: {str(e)}'}), 400
-        
-        return jsonify({'error': 'Invalid file type'}), 400
-        
+        cleanup_old_files()
+        return jsonify({'success': True, 'message': 'Cleanup completed successfully'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/debug/<generation_id>')
-def debug_generation(generation_id):
-    """Debug endpoint to check video generation details"""
-    if generation_id not in video_generation_status:
-        return jsonify({'error': 'Invalid generation ID'}), 404
-    
-    status = video_generation_status[generation_id]
-    
-    # Search for video files
-    import glob
-    all_mp4s = glob.glob("**/*.mp4", recursive=True)
-    recent_mp4s = []
-    
-    import time
-    current_time = time.time()
-    for file in all_mp4s:
-        try:
-            file_time = os.path.getmtime(file)
-            if current_time - file_time < 1800:  # Last 30 minutes
-                recent_mp4s.append({
-                    'path': file,
-                    'size': os.path.getsize(file),
-                    'modified': time.ctime(file_time)
-                })
-        except:
-            pass
-    
-    debug_info = {
-        'generation_status': status,
-        'all_mp4_files': all_mp4s,
-        'recent_mp4_files': recent_mp4s,
-        'working_directory': os.getcwd(),
-        'outputs_directory': app.config['OUTPUT_FOLDER'],
-        'outputs_exists': os.path.exists(app.config['OUTPUT_FOLDER'])
-    }
-    
-    return jsonify(debug_info)
-
-@app.errorhandler(413)
-def too_large(e):
-    return jsonify({'error': 'File too large'}), 413
+        return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
 
 @app.errorhandler(404)
-def not_found(e):
-    return jsonify({'error': 'Not found'}), 404
+def not_found_error(error):
+    return jsonify({'error': 'Resource not found'}), 404
 
 @app.errorhandler(500)
-def internal_error(e):
+def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    import sys
+    print("🎬 GROQ REEL GENERATOR - WEB INTERFACE")
+    print("=" * 50)
+    print(f"🌐 Starting Flask web application on localhost:5000")
+    print(f"🔗 Open your browser to: http://localhost:5000")
+    print("⏹️ Press Ctrl+C to stop the web server")
+    print()
+    print("📊 System Status:")
+    for module, status in MODULES_STATUS.items():
+        print(f"   {module}: {'✅ Available' if status else '❌ Not Available'}")
+    print(f"   Avatar file: {'✅ Found' if get_avatar_path() else '❌ Not Found'}")
+    print()
     
-    # Get port from command line arguments
-    port = 5000
-    if len(sys.argv) > 1:
+    cleanup_old_files()
+    
+    app.run(host='0.0.0.0', port=8080, debug=False)
+    '''
+#!/usr/bin/env python3
+"""
+Groq Reel Generator - Complete Flask Web Application
+Features: Video Generation, Computing Monitoring, Credit System
+"""
+
+from flask import Flask, render_template, request, jsonify, send_file, url_for
+import os
+import sys
+import threading
+import time
+import json
+import shutil
+from datetime import datetime, timedelta
+from pathlib import Path
+import subprocess
+
+# Initialize Flask app
+app = Flask(__name__)
+app.secret_key = 'groq_reel_generator_secret_key_2024'
+
+# Configuration
+UPLOAD_FOLDER = 'static/uploads'
+OUTPUT_FOLDER = 'static/outputs'
+AVATAR_PATH = 'avatar.mp4'
+CLEANUP_HOURS = 24
+
+# Create necessary directories
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+os.makedirs('static', exist_ok=True)
+
+# Module availability tracking
+MODULES_STATUS = {
+    'core': False,
+    'talking_avatar': False,
+    'musical_rhyme': False,
+    'computing_monitor': False
+}
+
+# Core modules (required)
+try:
+    from groq_script_generator import get_user_story_prompt, generate_story_script
+    from updated_main_groq import main as generate_video_main
+    from piper_tts_integration import convert_text_to_speech, get_audio_duration, verify_audio_file
+    MODULES_STATUS['core'] = True
+    print("✅ Core modules loaded successfully")
+except ImportError as e:
+    print(f"❌ Core module import failed: {e}")
+    print("💡 Make sure groq_script_generator.py, updated_main_groq.py, and piper_tts_integration.py are available")
+
+# Avatar modules (optional)
+try:
+    from talking_avatar_integration import EnhancedTalkingAvatarGenerator, generate_talking_avatar_video_reel
+    MODULES_STATUS['talking_avatar'] = True
+    print("🎭 Talking Avatar feature loaded!")
+except ImportError as e:
+    print(f"⚠️ Talking Avatar not available: {e}")
+
+# Musical rhyme module (optional)
+try:
+    from musical_rhyme_generator import (
+        initialize_musical_rhyme,
+        generate_musical_rhyme_content,
+        generate_rhyme_script_only,
+        generate_musical_audio_only
+    )
+    MODULES_STATUS['musical_rhyme'] = True
+    print("🎵 Musical Rhyme feature loaded!")
+except ImportError as e:
+    print(f"⚠️ Musical Rhyme not available: {e}")
+
+# Computing monitor (optional)
+try:
+    from computing_monitor import (
+        start_monitoring, 
+        stop_monitoring_and_deduct_credits,
+        get_credit_balance,
+        add_credits,
+        get_usage_statistics,
+        check_sufficient_credits
+    )
+    MODULES_STATUS['computing_monitor'] = True
+    print("💻 Computing Monitor loaded!")
+except ImportError as e:
+    print(f"⚠️ Computing Monitor not available: {e}")
+    print("💡 Run 'python setup_computing.py' to install computing monitor dependencies")
+
+# Global status tracking
+video_generation_status = {
+    'is_generating': False,
+    'progress': 0,
+    'stage': '',
+    'current_video': None,
+    'error': None,
+    'start_time': None,
+    'computing_report': None,
+    'credits_info': {
+        'balance': 100.0,
+        'estimated_cost': 0.0,
+        'processing_type': 'Unknown'
+    }
+}
+
+def cleanup_old_files():
+    """Remove files older than 24 hours"""
+    try:
+        current_time = datetime.now()
+        cutoff_time = current_time - timedelta(hours=CLEANUP_HOURS)
+        
+        cleaned_count = 0
+        
+        for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER]:
+            for file_path in Path(folder).rglob('*'):
+                if file_path.is_file() and file_path.name != '.gitkeep':
+                    file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
+                    if file_time < cutoff_time:
+                        try:
+                            file_path.unlink()
+                            cleaned_count += 1
+                            print(f"🗑️ Cleaned up: {file_path.name}")
+                        except Exception as e:
+                            print(f"⚠️ Could not delete {file_path}: {e}")
+        
+        if cleaned_count > 0:
+            print(f"🧹 Cleanup complete: {cleaned_count} files removed")
+            
+    except Exception as e:
+        print(f"⚠️ Cleanup error: {e}")
+
+def update_status(is_generating=None, progress=None, stage=None, current_video=None, error=None, computing_report=None):
+    """Update generation status"""
+    global video_generation_status
+    
+    # Only update non-None values
+    if is_generating is not None:
+        video_generation_status['is_generating'] = is_generating
+    if progress is not None:
+        video_generation_status['progress'] = progress
+    if stage is not None:
+        video_generation_status['stage'] = stage
+    if current_video is not None:
+        video_generation_status['current_video'] = current_video
+    if error is not None:
+        video_generation_status['error'] = error
+    if computing_report is not None:
+        video_generation_status['computing_report'] = computing_report
+    
+    # Update credits info
+    if MODULES_STATUS['computing_monitor']:
         try:
-            port = int(sys.argv[1])
-        except ValueError:
-            port = 5000
+            video_generation_status['credits_info']['balance'] = get_credit_balance()
+        except:
+            pass
     
-    print("🎬 GROQ REEL GENERATOR - Flask Web Application")
-    print("="*60)
-    print("🌐 Starting web server...")
-    print(f"📱 Access the application at: http://localhost:{port}")
-    print("🎯 Features:")
-    print("   ✅ Web-based video generation")
-    print("   ✅ Real-time progress tracking")
-    print("   ✅ Audio quality testing")
-    print("   ✅ System status monitoring")
-    print("   ✅ Custom script upload")
-    print("="*60)
+    # Handle start/stop time
+    if is_generating is True and not video_generation_status.get('start_time'):
+        video_generation_status['start_time'] = datetime.now().isoformat()
+    elif is_generating is False:
+        video_generation_status['start_time'] = None
+
+def get_avatar_path():
+    """Get the avatar.mp4 path with fallback options"""
+    possible_paths = [
+        Path.cwd() / 'avatar.mp4',
+        Path(__file__).parent / 'avatar.mp4',
+        Path.cwd() / 'assets' / 'avatar.mp4',
+        Path.cwd() / 'videos' / 'avatar.mp4'
+    ]
     
-    # Run the Flask app
-    app.run(debug=True, host='0.0.0.0', port=port)
+    for path in possible_paths:
+        if path.exists():
+            print(f"📍 Found avatar at: {path}")
+            return str(path)
+    
+    print(f"⚠️ Avatar file not found")
+    return None
+
+def convert_to_web_format(input_path, output_path):
+    """Convert video to web-compatible format using FFmpeg"""
+    try:
+        print(f"🔄 Converting video to web format...")
+        print(f"   Input: {input_path}")
+        print(f"   Output: {output_path}")
+        
+        # FFmpeg command for web-compatible video
+        cmd = [
+            'ffmpeg', '-y',  # Overwrite output file
+            '-i', input_path,
+            '-c:v', 'libx264',  # H.264 video codec
+            '-preset', 'medium',  # Encoding speed/quality balance
+            '-crf', '23',  # Quality setting (lower = better quality)
+            '-c:a', 'aac',  # AAC audio codec
+            '-b:a', '128k',  # Audio bitrate
+            '-movflags', '+faststart',  # Enable streaming
+            '-pix_fmt', 'yuv420p',  # Pixel format for compatibility
+            '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',  # Ensure even dimensions
+            output_path
+        ]
+        
+        print(f"🔧 Running FFmpeg conversion...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            print(f"✅ Video conversion successful")
+            return output_path
+        else:
+            print(f"❌ FFmpeg conversion failed:")
+            print(f"   Error: {result.stderr}")
+            
+            # Fallback: just copy the file if conversion fails
+            print(f"🔄 Falling back to direct copy...")
+            shutil.copy2(input_path, output_path)
+            return output_path
+            
+    except subprocess.TimeoutExpired:
+        print(f"❌ Video conversion timed out")
+        # Fallback: just copy the file
+        shutil.copy2(input_path, output_path)
+        return output_path
+    except Exception as e:
+        print(f"❌ Video conversion error: {e}")
+        # Fallback: just copy the file
+        try:
+            shutil.copy2(input_path, output_path)
+            return output_path
+        except Exception as copy_error:
+            print(f"❌ Even file copy failed: {copy_error}")
+            return None
+
+def handle_video_result(result, video_type, timestamp):
+    """Handle video result and ensure it's accessible via web interface"""
+    if not result or not os.path.exists(result):
+        print(f"❌ Video file not found: {result}")
+        return None
+    
+    output_filename = f"{video_type}_{timestamp}.mp4"
+    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+    
+    try:
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        
+        # Convert video to web-compatible format
+        web_compatible_path = convert_to_web_format(result, output_path)
+        
+        if web_compatible_path and os.path.exists(web_compatible_path):
+            print(f"✅ Web-compatible video created: {web_compatible_path}")
+            
+            # Generate URL without Flask context (using relative path)
+            video_url = f"/static/outputs/{output_filename}"
+            print(f"🌐 Video URL: {video_url}")
+            
+            # Clean up original if it's in a temp location
+            if any(keyword in result.lower() for keyword in ['/tmp/', 'temp', '5_final', 'outputs', 'talking_avatar']):
+                try:
+                    # Clean up the entire temp directory for avatar generation
+                    if 'talking_avatar' in result:
+                        temp_dir = os.path.dirname(os.path.dirname(result))  # Go up two levels from final/
+                        if os.path.exists(temp_dir) and 'talking_avatar' in temp_dir:
+                            shutil.rmtree(temp_dir)
+                            print(f"🗑️ Cleaned up temp directory: {temp_dir}")
+                    else:
+                        os.remove(result)
+                        print(f"🗑️ Cleaned up original: {result}")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Cleanup failed: {cleanup_error}")
+            
+            return video_url
+        else:
+            print(f"❌ Failed to create web-compatible video")
+            return None
+        
+    except Exception as e:
+        print(f"❌ Error handling video result: {e}")
+        return None
+
+def generate_avatar_for_web(topic, language='english', audience='adult', duration=1.0):
+    """Web-compatible wrapper for avatar generation"""
+    
+    print(f"🎭 WEB AVATAR GENERATION")
+    print(f"📝 Topic: {topic}")
+    print(f"🗣️ Language: {language}")
+    print(f"👥 Audience: {audience}")
+    print(f"⏱️ Duration: {duration} minutes")
+    
+    try:
+        avatar_path = get_avatar_path()
+        if not avatar_path:
+            print("❌ Avatar file (avatar.mp4) not found")
+            return None
+        
+        print(f"📹 Using avatar: {avatar_path}")
+        
+        # Create avatar generator with the avatar file
+        avatar_generator = EnhancedTalkingAvatarGenerator(avatar_path)
+        
+        # Generate the avatar video with web parameters
+        result = avatar_generator.generate_complete_talking_avatar(
+            script_topic=topic,
+            audience=audience,
+            quality="high"
+        )
+        
+        if result and os.path.exists(result):
+            print(f"✅ Avatar video generated: {result}")
+            return result
+        else:
+            print("❌ Avatar generation failed")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Avatar generation error: {e}")
+        return None
+
+def estimate_video_cost(video_type: str, duration: float) -> float:
+    """Estimate video generation cost in credits"""
+    base_cost = {
+        'reel': 3.0,
+        'avatar': 5.0,
+        'musical': 4.0
+    }
+    
+    base = base_cost.get(video_type, 3.0)
+    duration_multiplier = 1.0 + (duration - 1.0) * 0.5  # +50% per additional minute
+    
+    return round(base * duration_multiplier, 1)
+
+# Flask Routes
+
+@app.route('/')
+def index():
+    """Main page"""
+    cleanup_old_files()
+    avatar_available = get_avatar_path() is not None
+    
+    return render_template('index.html', 
+                         core_available=MODULES_STATUS['core'],
+                         talking_avatar_available=MODULES_STATUS['talking_avatar'],
+                         musical_rhyme_available=MODULES_STATUS['musical_rhyme'],
+                         computing_monitor_available=MODULES_STATUS['computing_monitor'],
+                         avatar_available=avatar_available)
+
+@app.route('/status')
+def get_status():
+    """Get current generation status"""
+    status = video_generation_status.copy()
+    
+    # Add timing information if start_time exists
+    if status.get('start_time'):
+        try:
+            start_time = datetime.fromisoformat(status['start_time'])
+            elapsed = (datetime.now() - start_time).total_seconds()
+            status['elapsed_time'] = elapsed
+        except:
+            pass
+    
+    return jsonify(status)
+
+@app.route('/generate', methods=['POST'])
+def generate_video():
+    """Generate video based on form data"""
+    if video_generation_status['is_generating']:
+        return jsonify({'error': 'Video generation already in progress'}), 400
+    
+    try:
+        data = request.get_json()
+        
+        video_type = data.get('video_type')
+        language = data.get('language', 'english')
+        audience = data.get('audience', 'adult')
+        topic = data.get('topic', '').strip()
+        duration = float(data.get('duration', 1.0))
+        
+        # Validation
+        if not topic:
+            return jsonify({'error': 'Topic is required'}), 400
+        
+        if len(topic) < 5:
+            return jsonify({'error': 'Topic must be at least 5 characters long'}), 400
+        
+        if duration < 0.5 or duration > 10:
+            return jsonify({'error': 'Duration must be between 0.5 and 10 minutes'}), 400
+        
+        # Check credits if monitoring is available
+        if MODULES_STATUS['computing_monitor']:
+            estimated_cost = estimate_video_cost(video_type, duration)
+            if not check_sufficient_credits(estimated_cost):
+                current_balance = get_credit_balance()
+                return jsonify({
+                    'error': f'Insufficient credits! Need: {estimated_cost:.1f}, Have: {current_balance:.1f}',
+                    'credits_needed': estimated_cost,
+                    'current_balance': current_balance
+                }), 402  # Payment Required
+        
+        # Start generation in background thread
+        thread = threading.Thread(
+            target=generate_video_background,
+            args=(video_type, topic, language, audience, duration),
+            daemon=True
+        )
+        thread.start()
+        
+        response_data = {
+            'success': True, 
+            'message': 'Generation started',
+            'estimated_duration': f'{duration} minutes'
+        }
+        
+        if MODULES_STATUS['computing_monitor']:
+            response_data['estimated_cost'] = estimate_video_cost(video_type, duration)
+            response_data['current_balance'] = get_credit_balance()
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        return jsonify({'error': f'Request processing error: {str(e)}'}), 500
+
+def generate_video_background(video_type, topic, language, audience, duration):
+    """Background video generation with computing monitoring"""
+    computing_report = None
+    
+    try:
+        # Start computing monitoring
+        if MODULES_STATUS['computing_monitor']:
+            start_monitoring(video_type)
+            update_status(is_generating=True, progress=0, stage='Initializing with computing monitor...')
+        else:
+            update_status(is_generating=True, progress=0, stage='Initializing generation system...')
+        
+        time.sleep(1)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Enhance topic with language specification for better results
+        enhanced_topic = topic
+        if language == 'hindi':
+            if 'hindi' not in topic.lower() and 'हिंदी' not in topic:
+                enhanced_topic = f"{topic} in hindi"
+                print(f"🇮🇳 Enhanced topic for Hindi: {enhanced_topic}")
+        
+        if video_type == 'reel':
+            update_status(progress=5, stage='Preparing script generation...')
+            
+            if not MODULES_STATUS['core']:
+                update_status(is_generating=False, progress=0, error='Core modules not available')
+                return
+            
+            update_status(progress=15, stage='Generating creative script...')
+            
+            num_segments = max(3, int(duration * 2))
+            
+            try:
+                story_script = generate_story_script(
+                    story_topic=enhanced_topic,
+                    audience=audience,
+                    duration_minutes=duration,
+                    num_segments=num_segments
+                )
+            except Exception as e:
+                update_status(is_generating=False, progress=0, error=f'Script generation failed: {str(e)}')
+                return
+            
+            if not story_script:
+                update_status(is_generating=False, progress=0, error='Failed to generate script content')
+                return
+            
+            update_status(progress=40, stage='Creating visual content...')
+            time.sleep(2)
+            
+            update_status(progress=70, stage='Assembling final video...')
+            
+            try:
+                result = generate_video_main(story_script)
+            except Exception as e:
+                update_status(is_generating=False, progress=0, error=f'Video generation failed: {str(e)}')
+                return
+            
+            video_url = handle_video_result(result, "reel", timestamp)
+            if video_url:
+                update_status(is_generating=False, progress=100, stage='Complete', current_video=video_url)
+            else:
+                update_status(is_generating=False, progress=0, error='Failed to process video file')
+                
+        elif video_type == 'avatar' and MODULES_STATUS['talking_avatar']:
+            avatar_path = get_avatar_path()
+            if not avatar_path:
+                update_status(is_generating=False, progress=0, error='Avatar file (avatar.mp4) not found')
+                return
+            
+            update_status(progress=10, stage='Initializing avatar system...')
+            update_status(progress=30, stage='Processing avatar animation...')
+            
+            try:
+                # Use the web-compatible avatar generation with enhanced topic
+                result = generate_avatar_for_web(
+                    topic=enhanced_topic,
+                    language=language,
+                    audience=audience,
+                    duration=duration
+                )
+                
+                video_url = handle_video_result(result, "avatar", timestamp)
+                if video_url:
+                    update_status(is_generating=False, progress=100, stage='Complete', current_video=video_url)
+                else:
+                    update_status(is_generating=False, progress=0, error='Failed to process avatar video file')
+                    
+            except Exception as e:
+                print(f"❌ Avatar generation error: {e}")
+                update_status(is_generating=False, progress=0, error=f'Avatar generation failed: {str(e)}')
+                
+        elif video_type == 'musical' and MODULES_STATUS['musical_rhyme']:
+            update_status(progress=10, stage='Initializing musical system...')
+            update_status(progress=25, stage='Generating musical content...')
+            
+            try:
+                # Generate a unique output directory
+                musical_output_dir = f"musical_rhyme_{enhanced_topic.replace(' ', '_')}_{timestamp}"
+                
+                result = generate_musical_rhyme_content(
+                    topic=enhanced_topic,
+                    language=language,
+                    audience=audience,
+                    output_dir=musical_output_dir
+                )
+            except Exception as e:
+                update_status(is_generating=False, progress=0, error=f'Musical content generation failed: {str(e)}')
+                return
+            
+            if result:
+                update_status(progress=80, stage='Processing musical video...')
+                
+                # Check if the musical rhyme generator already created a video
+                if result.get('final_video') and os.path.exists(result['final_video']):
+                    print(f"✅ Using pre-generated musical video: {result['final_video']}")
+                    video_result = result['final_video']
+                elif result.get('script'):
+                    # If no video but script exists, generate video
+                    update_status(progress=60, stage='Creating musical video from script...')
+                    try:
+                        video_result = generate_video_main(result['script'])
+                    except Exception as e:
+                        update_status(is_generating=False, progress=0, error=f'Musical video creation failed: {str(e)}')
+                        return
+                else:
+                    update_status(is_generating=False, progress=0, error='No video or script generated by musical system')
+                    return
+                
+                video_url = handle_video_result(video_result, "musical", timestamp)
+                if video_url:
+                    update_status(is_generating=False, progress=100, stage='Complete', current_video=video_url)
+                else:
+                    update_status(is_generating=False, progress=0, error='Failed to process musical video file')
+            else:
+                update_status(is_generating=False, progress=0, error='Musical content generation failed')
+        
+        else:
+            update_status(is_generating=False, progress=0, error=f'Video type "{video_type}" not available')
+            
+    except Exception as e:
+        update_status(is_generating=False, progress=0, error=f'Unexpected error: {str(e)}')
+    
+    finally:
+        # Stop monitoring and handle credits
+        if MODULES_STATUS['computing_monitor']:
+            try:
+                update_status(stage='Processing credits...')
+                computing_report = stop_monitoring_and_deduct_credits()
+                
+                # Update final status with computing report
+                update_status(computing_report=computing_report)
+                
+                # Check if credit transaction was successful
+                if computing_report.get('credit_transaction') == 'insufficient_credits':
+                    update_status(is_generating=False, progress=0, 
+                                error=f"Generation completed but insufficient credits for billing. "
+                                     f"Need: {computing_report.get('credits_needed', 0):.1f}, "
+                                     f"Have: {computing_report.get('current_balance', 0):.1f}")
+                
+                print(f"💻 Computing Report Generated:")
+                print(f"   Duration: {computing_report.get('duration', {}).get('formatted', 'Unknown')}")
+                print(f"   CPU Avg: {computing_report.get('cpu', {}).get('average_percent', 0):.1f}%")
+                print(f"   GPU Avg: {computing_report.get('gpu', {}).get('average_percent', 0):.1f}%")
+                print(f"   Credits: {computing_report.get('credits', {}).get('final_credits', 0):.2f}")
+                print(f"   Processing: {computing_report.get('performance', {}).get('processing_type', 'Unknown')}")
+                
+            except Exception as monitor_error:
+                print(f"⚠️ Computing monitor error: {monitor_error}")
+                update_status(stage='Computing monitor error')
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    """Download generated video file with security checks"""
+    try:
+        file_path = Path(OUTPUT_FOLDER) / filename
+        
+        if not file_path.exists() or not str(file_path).startswith(str(Path(OUTPUT_FOLDER).resolve())):
+            return jsonify({'error': 'File not found or access denied'}), 404
+        
+        return send_file(file_path, as_attachment=True, download_name=filename)
+        
+    except Exception as e:
+        return jsonify({'error': f'Download error: {str(e)}'}), 500
+
+@app.route('/video/<filename>')
+def serve_video(filename):
+    """Serve video files with proper headers for web playback"""
+    try:
+        file_path = Path(OUTPUT_FOLDER) / filename
+        
+        if not file_path.exists() or not str(file_path).startswith(str(Path(OUTPUT_FOLDER).resolve())):
+            return jsonify({'error': 'File not found or access denied'}), 404
+        
+        def generate():
+            with open(file_path, 'rb') as f:
+                data = f.read(1024)
+                while data:
+                    yield data
+                    data = f.read(1024)
+        
+        response = app.response_class(generate(), mimetype='video/mp4')
+        response.headers.add('Accept-Ranges', 'bytes')
+        response.headers.add('Content-Length', str(file_path.stat().st_size))
+        response.headers.add('Cache-Control', 'no-cache')
+        
+        return response
+        
+    except Exception as e:
+        return jsonify({'error': f'Video serving error: {str(e)}'}), 500
+
+@app.route('/test-audio', methods=['POST'])
+def test_audio():
+    """Test audio quality"""
+    try:
+        data = request.get_json()
+        language = data.get('language', 'english')
+        
+        test_texts = {
+            'english': "Hello! This is a test of the English audio quality. The audio should be crystal clear.",
+            'hindi': "नमस्ते! यह हिंदी ऑडियो गुणवत्ता का परीक्षण है। आवाज़ बिल्कुल साफ होनी चाहिए।"
+        }
+        
+        if language not in test_texts:
+            return jsonify({'error': 'Unsupported language for audio test'}), 400
+        
+        if not MODULES_STATUS['core']:
+            return jsonify({'error': 'Audio system not available'}), 503
+        
+        text = test_texts[language]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"audio_test_{language}_{timestamp}.mp3"
+        output_path = Path(OUTPUT_FOLDER) / output_filename
+        
+        result = convert_text_to_speech(text, str(output_path))
+        
+        if result and os.path.exists(result):
+            duration = get_audio_duration(result)
+            is_valid, message = verify_audio_file(result)
+            
+            audio_url = url_for('static', filename=f'outputs/{output_filename}')
+            
+            return jsonify({
+                'success': True,
+                'audio_url': audio_url,
+                'duration': round(duration, 2) if duration else 0,
+                'quality_message': message,
+                'language': language
+            })
+        else:
+            return jsonify({'error': 'Audio generation failed'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'Audio test error: {str(e)}'}), 500
+
+@app.route('/system-status')
+def system_status():
+    """Get comprehensive system status information"""
+    try:
+        status = {
+            'core_modules': MODULES_STATUS['core'],
+            'talking_avatar': MODULES_STATUS['talking_avatar'],
+            'musical_rhyme': MODULES_STATUS['musical_rhyme'],
+            'computing_monitor': MODULES_STATUS['computing_monitor'],
+            'avatar_file': get_avatar_path() is not None,
+            'output_folder': os.path.exists(OUTPUT_FOLDER),
+            'upload_folder': os.path.exists(UPLOAD_FOLDER)
+        }
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        return jsonify({'error': f'Status check failed: {str(e)}'}), 500
+
+@app.route('/cleanup', methods=['POST'])
+def manual_cleanup():
+    """Manual file cleanup endpoint"""
+    try:
+        cleanup_old_files()
+        return jsonify({'success': True, 'message': 'Cleanup completed successfully'})
+    except Exception as e:
+        return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
+
+# Credit Management Routes (only available if computing monitor is loaded)
+
+@app.route('/credits')
+def get_credits():
+    """Get current credit information"""
+    try:
+        if not MODULES_STATUS['computing_monitor']:
+            return jsonify({'error': 'Computing monitor not available'}), 503
+        
+        balance = get_credit_balance()
+        stats = get_usage_statistics()
+        
+        return jsonify({
+            'balance': balance,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Credits check failed: {str(e)}'}), 500
+
+@app.route('/credits/add', methods=['POST'])
+def add_user_credits():
+    """Add credits to user account (admin function)"""
+    try:
+        if not MODULES_STATUS['computing_monitor']:
+            return jsonify({'error': 'Computing monitor not available'}), 503
+        
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        reason = data.get('reason', 'Manual addition')
+        
+        if amount <= 0:
+            return jsonify({'error': 'Amount must be positive'}), 400
+        
+        if amount > 1000:
+            return jsonify({'error': 'Cannot add more than 1000 credits at once'}), 400
+        
+        add_credits(amount, reason)
+        new_balance = get_credit_balance()
+        
+        return jsonify({
+            'success': True,
+            'added': amount,
+            'new_balance': new_balance,
+            'reason': reason
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Add credits failed: {str(e)}'}), 500
+
+@app.route('/usage-history')
+def get_usage_history():
+    """Get detailed usage history"""
+    try:
+        if not MODULES_STATUS['computing_monitor']:
+            return jsonify({'error': 'Computing monitor not available'}), 503
+        
+        stats = get_usage_statistics()
+        return jsonify(stats)
+        
+    except Exception as e:
+        return jsonify({'error': f'Usage history failed: {str(e)}'}), 500
+
+
+if __name__ == '__main__':
+    print("🎬 GROQ REEL GENERATOR - WEB INTERFACE")
+    print("=" * 50)
+    print(f"🌐 Starting Flask web application on localhost:5000")
+    print(f"🔗 Open your browser to: http://localhost:5000")
+    print("⏹️ Press Ctrl+C to stop the web server")
+    print()
+    print("📊 System Status:")
+    for module, status in MODULES_STATUS.items():
+        print(f"   {module}: {'✅ Available' if status else '❌ Not Available'}")
+    print(f"   Avatar file: {'✅ Found' if get_avatar_path() else '❌ Not Found'}")
+    print()
+    
+    cleanup_old_files()
+    
+    app.run(host='0.0.0.0', port=8080, debug=False)
