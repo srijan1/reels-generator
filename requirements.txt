@@ -1,23 +1,304 @@
-torch
-diffusers
-huggingface_hub
-pillow
-pexels_api
-pyttsx3
-# PIL
-# cv2
-requests
-tqdm
-numpy
-opencv-python
-# audioop-lts
-pydub
-scipy
-transformers
-Flask==3.0.0
-Werkzeug==3.0.1
-langdetect
-soundfile
-datasets
-accelerate
-python-dotenv
+# ===============================================================================
+# COMPLETE REQUIREMENTS.TXT FOR GROQ REEL GENERATOR SYSTEM
+# ===============================================================================
+# 
+# This file includes ALL dependencies for:
+# ✅ Groq Reel Generator (Main System)
+# ✅ Musical Rhyme Generator (with Dual Model System)
+# ✅ Enhanced Transitions (with Zoom In/Out)
+# ✅ Talking Avatar Integration
+# ✅ Enhanced Image Generation
+# ✅ Web Interface (Flask App)
+# ✅ Audio Processing & TTS
+# ✅ Video Assembly & Processing
+# ✅ All Existing Features
+#
+# Install with: pip install -r requirements.txt
+# ===============================================================================
+
+# === CORE PYTHON PACKAGES ===
+numpy>=1.21.0
+pillow>=9.0.0
+opencv-python>=4.5.3.56
+opencv-contrib-python>=4.5.3.56
+matplotlib>=3.5.0
+scipy>=1.7.0
+scikit-image>=0.18.0
+imageio>=2.9.0
+imageio-ffmpeg>=0.4.7
+
+# === MACHINE LEARNING & AI ===
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+transformers>=4.35.0
+accelerate>=0.24.0
+datasets>=2.14.0
+tokenizers>=0.15.0
+safetensors>=0.4.0
+huggingface-hub>=0.19.0
+
+# === AUDIO PROCESSING ===
+pydub>=0.25.1
+soundfile>=0.12.1
+librosa>=0.10.0
+pyaudio>=0.2.11
+wave>=0.0.2
+mutagen>=1.45.1
+pyttsx3>=2.90
+speech-recognition>=3.10.0
+
+# === PARLER-TTS & MUSICAL RHYME DEPENDENCIES ===
+parler-tts>=0.1.0
+git+https://github.com/huggingface/parler-tts.git
+
+# === WEB INTERFACE ===
+flask>=2.3.0
+flask-cors>=4.0.0
+flask-socketio>=5.3.0
+werkzeug>=2.3.0
+gunicorn>=21.2.0
+
+# === IMAGE GENERATION & PROCESSING ===
+diffusers>=0.24.0
+controlnet-aux>=0.0.6
+xformers>=0.0.22
+accelerate>=0.24.0
+compel>=2.0.2
+
+# === STABLE DIFFUSION DEPENDENCIES ===
+invisible-watermark>=0.2.0
+transformers>=4.35.0
+accelerate>=0.24.0
+safetensors>=0.4.0
+
+# === VIDEO PROCESSING ===
+moviepy>=1.0.3
+ffmpeg-python>=0.2.0
+av>=10.0.0
+
+# === HTTP & API CLIENTS ===
+requests>=2.31.0
+urllib3>=1.26.0
+httpx>=0.25.0
+aiohttp>=3.8.0
+
+# === DATA PROCESSING ===
+pandas>=1.5.0
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+python-docx>=0.8.11
+
+# === GROQ API ===
+groq>=0.4.0
+
+# === PEXELS API ===
+pexels-api>=1.0.0
+
+# === UTILITIES ===
+tqdm>=4.65.0
+colorama>=0.4.6
+python-dotenv>=1.0.0
+pathlib>=1.0.1
+typing-extensions>=4.8.0
+pydantic>=2.5.0
+
+# === LANGUAGE DETECTION ===
+langdetect>=1.0.9
+polyglot>=16.7.4
+
+# === JSON & YAML ===
+pyyaml>=6.0
+jsonschema>=4.19.0
+
+# === LOGGING & MONITORING ===
+loguru>=0.7.0
+psutil>=5.9.0
+
+# === DEVELOPMENT & TESTING ===
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.9.0
+flake8>=6.1.0
+
+# === ASYNC PROCESSING ===
+asyncio>=3.4.3
+aiofiles>=23.2.1
+
+# === ENHANCED FEATURES ===
+spaces>=0.19.0
+gradio>=4.0.0
+
+# === SYSTEM DEPENDENCIES ===
+# Note: These may need to be installed separately depending on your system
+
+# For Ubuntu/Debian:
+# sudo apt-get update
+# sudo apt-get install -y \
+#     ffmpeg \
+#     libsndfile1 \
+#     libsndfile1-dev \
+#     portaudio19-dev \
+#     python3-pyaudio \
+#     espeak \
+#     espeak-data \
+#     libespeak-dev \
+#     festival \
+#     festvox-kallpc16k
+
+# For macOS:
+# brew install ffmpeg portaudio espeak festival
+
+# For Windows:
+# Download and install FFmpeg from https://ffmpeg.org/download.html
+# Add FFmpeg to your PATH environment variable
+
+# === OPTIONAL ENHANCEMENTS ===
+# These packages provide additional functionality but are not required
+
+# For GPU acceleration (NVIDIA GPUs):
+# nvidia-ml-py>=12.535.0
+# tensorrt>=8.6.0
+
+# For advanced audio processing:
+# essentia>=2.1b6.dev1034
+# madmom>=0.16.1
+
+# For enhanced image effects:
+# wand>=0.6.11
+# skimage>=0.0
+
+# For cloud storage integration:
+# boto3>=1.34.0
+# google-cloud-storage>=2.10.0
+
+# === INSTALLATION NOTES ===
+#
+# 1. BASIC INSTALLATION:
+#    pip install -r requirements.txt
+#
+# 2. GPU SUPPORT (NVIDIA):
+#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# 3. PARLER-TTS INSTALLATION:
+#    pip install git+https://github.com/huggingface/parler-tts.git
+#
+# 4. FOR HUGGING FACE MODELS:
+#    huggingface-cli login
+#    # Enter your HF token when prompted
+#
+# 5. SYSTEM DEPENDENCIES:
+#    # Ubuntu/Debian:
+#    sudo apt-get install ffmpeg libsndfile1 portaudio19-dev espeak
+#    
+#    # macOS:
+#    brew install ffmpeg portaudio espeak
+#    
+#    # Windows:
+#    # Download FFmpeg and add to PATH
+#
+# 6. VERIFY INSTALLATION:
+#    python -c "import torch; print('PyTorch version:', torch.__version__)"
+#    python -c "import transformers; print('Transformers version:', transformers.__version__)"
+#    python -c "import cv2; print('OpenCV version:', cv2.__version__)"
+#
+# === TROUBLESHOOTING ===
+#
+# Common Issues & Solutions:
+#
+# 1. PyAudio installation issues:
+#    pip install --upgrade setuptools wheel
+#    pip install pyaudio --no-cache-dir
+#
+# 2. OpenCV installation issues:
+#    pip uninstall opencv-python opencv-contrib-python
+#    pip install opencv-python opencv-contrib-python --no-cache-dir
+#
+# 3. PyTorch GPU issues:
+#    pip uninstall torch torchvision torchaudio
+#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# 4. Parler-TTS installation issues:
+#    pip install git+https://github.com/huggingface/parler-tts.git --no-cache-dir
+#
+# 5. FFmpeg not found:
+#    # Add FFmpeg to your system PATH
+#    # On Windows: Download from https://ffmpeg.org/download.html
+#    # On Ubuntu: sudo apt-get install ffmpeg
+#    # On macOS: brew install ffmpeg
+#
+# 6. Memory issues with large models:
+#    # Use CPU-only versions or reduce model sizes
+#    # Set PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+#
+# === FEATURE-SPECIFIC REQUIREMENTS ===
+#
+# Musical Rhyme Generator:
+# - torch>=2.0.0
+# - transformers>=4.35.0
+# - parler-tts>=0.1.0
+# - soundfile>=0.12.1
+# - numpy>=1.21.0
+#
+# Enhanced Transitions:
+# - opencv-python>=4.5.3.56
+# - pillow>=9.0.0
+# - numpy>=1.21.0
+# - scipy>=1.7.0
+#
+# Talking Avatar:
+# - opencv-python>=4.5.3.56
+# - pillow>=9.0.0
+# - moviepy>=1.0.3
+#
+# Web Interface:
+# - flask>=2.3.0
+# - flask-cors>=4.0.0
+# - flask-socketio>=5.3.0
+#
+# Image Generation:
+# - diffusers>=0.24.0
+# - transformers>=4.35.0
+# - accelerate>=0.24.0
+# - torch>=2.0.0
+#
+# === ENVIRONMENT VARIABLES ===
+#
+# Set these environment variables for optimal performance:
+# export TOKENIZERS_PARALLELISM=false
+# export CUDA_VISIBLE_DEVICES=0
+# export TRANSFORMERS_CACHE=/path/to/cache
+# export HF_HOME=/path/to/hf_cache
+#
+# === VERSION COMPATIBILITY ===
+#
+# Python Version: 3.8 - 3.11 (3.9 recommended)
+# CUDA Version: 11.8 or 12.1 (for GPU support)
+# FFmpeg Version: 4.4+ (for video processing)
+#
+# === DISK SPACE REQUIREMENTS ===
+#
+# Minimum: 10GB free space
+# Recommended: 50GB+ for model caching
+# Models download sizes:
+# - Parler-TTS: ~500MB
+# - Indic Parler-TTS: ~500MB
+# - Stable Diffusion: ~4GB
+# - Additional models: ~2-5GB each
+#
+# === FINAL NOTES ===
+#
+# This requirements.txt file ensures compatibility with:
+# ✅ All existing Groq Reel Generator features
+# ✅ Musical Rhyme Generator with dual model system
+# ✅ Enhanced transitions with zoom effects
+# ✅ Talking avatar integration
+# ✅ Web interface and all APIs
+# ✅ Cross-platform compatibility (Windows, Mac, Linux)
+#
+# For best results, install in a virtual environment:
+# python -m venv groq_env
+# source groq_env/bin/activate  # On Windows: groq_env\Scripts\activate
+# pip install -r requirements.txt
+#
+# ===============================================================================
