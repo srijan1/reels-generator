@@ -631,21 +631,21 @@ def generate_narration(image_prompt, original_text, desired_duration_seconds=7.5
         if language == 'hi':
             # Hindi narration options
             hindi_options = [
-                f"{original_text} - यह सफर वाकई अविस्मरणीय था।",
-                f"अंततः {original_text.lower()} - यह अनुभव जीवन भर याद रहेगा।",
-                f"{original_text} - इस खूबसूरत जगह ने मेरे दिल को छू लिया।",
-                f"वाह! {original_text} - यह देखकर मैं बेहद खुश हो गया।",
-                f"{original_text} - इतनी खूबसूरती देखकर मैं हैरान रह गया।"
+                f"{original_text}",
+                f"{original_text.lower()}",
+                f"{original_text}",
+                f"{original_text}",
+                f"{original_text}"
             ]
             narration_text = random.choice(hindi_options)
         else:
             # English narration options (conversational segment style with soft skills)
             english_options = [
-                f"Well... {original_text}... This amazing journey... was truly... beyond my dreams... you know.",
-                f"So... finally experiencing... {original_text.lower()}... The beauty here... is absolutely... wonderful... really.",
-                f"Actually... {original_text}... The incredible sights... left me... completely amazed... truly.",
-                f"You know... I still cannot... believe it... {original_text.lower()}... This beautiful memory... will stay with me... forever... indeed.",
-                f"Well... {original_text}... Every moment... felt like... a scene from... a perfect movie... you see."
+                f"{original_text}",
+                f"{original_text.lower()}",
+                f"{original_text}",
+                f"{original_text.lower()}",
+                f"{original_text}"
             ]
             narration_text = random.choice(english_options)
         
